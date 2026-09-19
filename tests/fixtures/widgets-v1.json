@@ -1,0 +1,182 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Widgets",
+    "version": "2026-01-01"
+  },
+  "components": {
+    "schemas": {
+      "Shipping": {
+        "type": "object",
+        "description": "Where the widget goes.",
+        "properties": {
+          "address": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "ground",
+              "air"
+            ]
+          }
+        },
+        "required": [
+          "method"
+        ]
+      }
+    }
+  },
+  "paths": {
+    "/v1/widgets": {
+      "get": {
+        "operationId": "ListWidgets",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "archived"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      },
+      "post": {
+        "operationId": "CreateWidget",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "Widget name."
+                  },
+                  "legacy_code": {
+                    "type": "string",
+                    "description": "Deprecated identifier."
+                  },
+                  "amount": {
+                    "type": "integer",
+                    "description": "Amount in whole dollars."
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "fast",
+                      "slow",
+                      "turbo"
+                    ]
+                  },
+                  "shipping": {
+                    "$ref": "#/components/schemas/Shipping"
+                  },
+                  "note": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 50
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          ""
+                        ]
+                      }
+                    ],
+                    "description": "Free-form note."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
+    },
+    "/v1/widgets/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "UpdateWidget",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 100
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
+    },
+    "/v1/legacy": {
+      "get": {
+        "operationId": "Legacy",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
+    }
+  }
+}

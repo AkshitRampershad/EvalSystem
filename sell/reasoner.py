@@ -97,6 +97,23 @@ class HeuristicReasoner:
                                            provenance=prov)],
                                  rationale=f"supply '{fld}' from the allowed set"))
 
+        elif s.kind == "field_removed":
+            # A field we send that the contract no longer has. Distinct from
+            # `unknown_field`: that arrives as a rejection after we transmit,
+            # this arrives from a spec diff before we do. Same two hypotheses --
+            # it moved, or it is gone -- but reached a task earlier.
+            #
+            # Where it moved to something not textually similar (a real example:
+            # Stripe replacing `coupon` with a `discounts` array), string
+            # distance cannot find it and only `drop` is proposed. That gap is
+            # where a model-backed reasoner earns its cost.
+            fld = d["field"]
+            known = [n for n in ctx.model.spec.get("fields", {}) if n != fld]
+            for target in difflib.get_close_matches(fld, known, n=2, cutoff=0.6):
+                out.append(self._rename(fld, target, s, ctx))
+            out.append(Patch(add=[Rule("drop", {"field": fld}, provenance=prov)],
+                             rationale=f"'{fld}' was removed from the contract"))
+
         elif s.kind == "unknown_field":
             fld = d["field"]
             known = d.get("known_fields") or list(ctx.model.spec.get("fields", {}))

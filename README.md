@@ -94,6 +94,90 @@ operator sets the rate rather than discovering it. In the run above both
 clusters are demoted at t24 by the silent drift's rollbacks and re-graduate at
 t27.
 
+## Sensors against a real API
+
+`sell/real/` points the same detection layer at contracts a real provider
+actually shipped, so the drift is whatever really happened between two releases
+rather than something the simulation invented. Stripe publishes its OpenAPI
+document in a public git repo with 2,506 tagged versions, which means real drift
+is available now instead of after waiting for some to occur.
+
+```bash
+python3 -m sell.real.scan --list-versions
+python3 -m sell.real.scan --from v1500 --to v2000 --operation "POST /v1/customers" --propose
+python3 -m sell.real.scan --from v500 --to v2506            # whole API
+```
+
+`openapi.contract()` returns exactly the shape `PartnerAPI.get_spec()` returns,
+so `EnvironmentModel.diff()`, the invariant sensor and the reasoner read real
+contracts with no changes.
+
+### What real drift actually looks like
+
+Every number below is measured, not estimated — 589 operations and ~6,500
+contract fields per version.
+
+| window | span | ops changed | ops with breaking | total changes | breaking |
+|---|---|---|---|---|---|
+| v500 → v1000 | Aug 2023 → Apr 2024 | 121 | 11 | 529 | 14 |
+| v1000 → v1500 | → Feb 2025 | 109 | 2 | 459 | 3 |
+| v1500 → v2000 | → Aug 2025 | 91 | 18 | 364 | 35 |
+| v2000 → v2506 | → Aug 2026 | 214 | 7 | 1042 | 10 |
+| v2400 → v2506 | one month | 12 | 0 | 19 | 0 |
+| **v500 → v2506** | **three years** | **214** | **25** | **1716** | **44** |
+
+Four findings, all of which change how you would build this:
+
+**Breaking changes are 2.6% of spec changes.** Over three years, 1,716
+field-level changes contained 44 that could break an existing caller. The rest
+were 1,033 field additions and 577 description edits. A sensor that alerts on
+"the spec changed" pages you roughly 39 times per real problem, which is how
+drift detection gets switched off. The impact classifier is not a nicety; it is
+the thing that makes the sensor usable.
+
+**A well-run provider barely drifts.** Across one month and 106 releases, zero
+breaking changes. Stripe versions by date and holds old behaviour, so the pain
+this system addresses is concentrated in providers without that discipline, and
+in internal APIs where nobody is guarding compatibility at all. That is where
+to point it, and it is worth knowing before building a business on the premise.
+
+**The published version string is not a drift signal.** Releases v2502 through
+v2506 all report `info.version: 2026-08-26.dahlia` while their contents differ.
+A sensor that polls the version number and diffs only on a bump sees nothing.
+Structural diffing is not the expensive alternative to version watching; it is
+the only one that works.
+
+**Half the contract is not in the request body.** The first version of this
+adapter read only `requestBody` and reported zero fields for 290 of 594
+operations, because a `GET` takes its input as query parameters. Real breaking
+changes were invisible until that was fixed — Stripe removing the `?refund`
+query parameter from `GET /v1/credit_notes/preview` is one of them. Parameters
+now share the field map, distinguished by sigil: `?name` query, `{name}` path,
+`~name` header.
+
+### Real drift the heuristics cannot solve
+
+`--propose` runs the reasoner on the breaking signals. On the real removal of
+`coupon` and `promotion_code` from `POST /v1/customers` it proposes dropping
+both, because string distance cannot discover that Stripe moved that capability
+into a `discounts` array. Getting from the signal to the right answer needs
+semantic knowledge of the provider, which is exactly the gap `--reasoner claude`
+exists to close.
+
+Running against real specs also surfaced a gap in the core reasoner: it had a
+handler for a field the *API rejected* but none for a field the *contract
+dropped*, so a spec-visible removal produced no hypothesis at all. Fixed, and
+covered by `TestReasonerOnRealShapes`.
+
+### What is still missing for production
+
+The sensors are real. The verification gate is not: adopting a fix requires the
+sandbox check in `experiment.py`, and running that against a real provider needs
+real sandbox credentials. `--propose` therefore prints hypotheses and labels them
+UNVERIFIED, because nothing has tested them and nothing should adopt them. That
+boundary is deliberate — the gate is what makes the loop safe, so it is better
+to be visibly absent than quietly skipped.
+
 ## Layout
 
 | file | role |
@@ -106,6 +190,10 @@ t27.
 | `sell/policy.py` | versioned transform pipeline with rollback |
 | `sell/governor.py` | per-cluster autonomy ladder and error budget |
 | `sell/agent.py` | the loop |
+| `sell/real/openapi.py` | real OpenAPI 3 -> the same contract shape the sensors read |
+| `sell/real/diff.py` | structural diff with breaking / additive / cosmetic verdicts |
+| `sell/real/sources.py` | version discovery, fetch and cache for real specs |
+| `sell/real/scan.py` | CLI: measure real drift between two shipped versions |
 
 ## Using Claude for hypothesis generation
 
