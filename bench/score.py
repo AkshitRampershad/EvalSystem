@@ -167,9 +167,17 @@ def judge(case: Case, new_contract: dict[str, Any], attempt: Attempt) -> Outcome
                    detail=attempt.adopted.describe()[:120])
 
 
-def run(case_set: CaseSet, solver: Any) -> Report:
+def run(case_set: CaseSet, solver: Any,
+        progress: Any = None) -> Report:
+    """Score `solver` over every case.
+
+    `progress(done, total, case)` is called after each case. A model-backed run
+    takes minutes and prints nothing until the table, which looks indistinguishable
+    from a hang -- so the caller is given a way to show it is alive.
+    """
     report = Report(solver=solver.name)
-    for case in case_set:
+    total = len(case_set)
+    for index, case in enumerate(case_set, start=1):
         old = case_set.old_contract(case)
         new = case_set.new_contract(case)
         attempt = solver.solve(case, old, new)
@@ -178,4 +186,6 @@ def run(case_set: CaseSet, solver: Any) -> Report:
         outcome = judge(case, new, attempt)
         outcome.expected = case.expected_outcome
         report.outcomes.append(outcome)
+        if progress is not None:
+            progress(index, total, case, outcome)
     return report

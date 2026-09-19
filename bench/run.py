@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+import time
 from pathlib import Path
 
 from . import score as scoring
@@ -28,6 +30,30 @@ DEFAULT_WINDOWS = [("v250", "v500"), ("v500", "v750"), ("v750", "v1000"),
                    ("v1750", "v2000"), ("v2000", "v2250"), ("v2250", "v2506")]
 LADDER = ["noop", "escalate-always", "drop-ungated", "drop",
           "agent-ungated", "agent"]
+
+
+def _progress_for(solver, quiet: bool):
+    """A one-line live counter on stderr, so a long run does not look dead.
+
+    Written to stderr and rewritten in place, so piping stdout to a file or to
+    --json stays clean.
+    """
+    if quiet or not sys.stderr.isatty():
+        return None
+    started = time.monotonic()
+    tally: dict[str, int] = {}
+
+    def progress(done: int, total: int, _case, outcome) -> None:
+        tally[outcome.result] = tally.get(outcome.result, 0) + 1
+        elapsed = time.monotonic() - started
+        rate = done / elapsed if elapsed > 0 else 0
+        eta = (total - done) / rate if rate > 0 else 0
+        counts = " ".join(f"{k[:5]}={v}" for k, v in sorted(tally.items()))
+        sys.stderr.write(f"\r  {solver.name[:34]:<34} {done:>3}/{total}  "
+                         f"{counts}  eta {eta:>4.0f}s   ")
+        sys.stderr.flush()
+
+    return progress
 
 
 def _bar(report: scoring.Report, width: int = 28) -> str:
@@ -78,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
                     choices=[scoring.SOLVED, scoring.ESCALATED,
                              scoring.UNSOLVED, scoring.UNSAFE])
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--quiet", action="store_true",
+                    help="suppress the per-case progress line")
     ap.add_argument("--mine", action="store_true", help="re-mine, then write --cases")
     args = ap.parse_args(argv)
 
@@ -106,7 +134,12 @@ def main(argv: list[str] | None = None) -> int:
         if reasoner is not None and unavailable:
             print(f"  note: {solver.name} is unavailable ({unavailable}); "
                   f"its hypotheses come from the heuristic fallback")
-    reports = [scoring.run(case_set, solver) for solver in solvers]
+    reports = []
+    for solver in solvers:
+        reports.append(scoring.run(case_set, solver,
+                                   progress=_progress_for(solver, args.quiet)))
+        if not args.quiet:
+            print(file=sys.stderr)
 
     # A row is only a measurement of the model it names if the model answered for
     # every case. Say loudly when it did not.
