@@ -7,13 +7,16 @@
 <meta name="description" content="When a service you depend on changes, the obvious fix passes every check and silently stops doing the job. An agent that repairs integrations, a gate that refuses fixes which only look correct, and a benchmark on 71 real breaking changes.">
 <style>
 /* Palette: beige #EDE8D0, olive #6E632E, lavender #DBD1ED, dusty blue #ABBEED.
-   Each theme gets its own steps rather than a flip: olive carries the accent on
-   the warm light ground, dusty blue carries it on the dark one, because olive
-   only reaches 3.04:1 against the dark surface. */
+   This page commits to one look deliberately -- there is no dark variant, and a
+   viewer whose browser or OS prefers dark still gets the warm palette. That is a
+   choice, not an omission, so every colour is painted explicitly from a token and
+   nothing is left to inherit from the host. `color-scheme: light` stops the user
+   agent from darkening form controls, scrollbars and the like underneath it. */
 :root{
+  color-scheme:light;
   --bg:#EDE8D0; --card:#FAF8F0; --tint:#DBD1ED; --surface-alt:rgba(110,99,46,.10);
   --text:#2E2A18; --text-2:#554D2F; --text-3:#6E632E;
-  --accent:#6E632E; --accent-2:#5A6EA8; --btn-fg:#FAF8F0;
+  --accent:#6E632E; --accent-2:#5A6EA8; --blue:#ABBEED; --btn-fg:#FAF8F0;
   --border:rgba(46,42,24,.16); --shadow:0 10px 26px rgba(46,42,24,.10);
   /* Reserved status palette. Fixed, mode-invariant, never themed: these four
      encode good / warning / critical in the results, and the page palette's
@@ -23,20 +26,6 @@
   --good:#0ca30c; --warn:#fab219; --crit:#d03b3b; --none:#8a8f99;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
   --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif;
-}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    --bg:#16150F; --card:#211F16; --tint:#262234; --surface-alt:rgba(237,232,208,.07);
-    --text:#EDE8D0; --text-2:#C3BC9C; --text-3:#9A9478;
-    --accent:#ABBEED; --accent-2:#DBD1ED; --btn-fg:#16150F;
-    --border:rgba(237,232,208,.15); --shadow:0 10px 26px rgba(0,0,0,.45);
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#16150F; --card:#211F16; --tint:#262234; --surface-alt:rgba(237,232,208,.07);
-  --text:#EDE8D0; --text-2:#C3BC9C; --text-3:#9A9478;
-  --accent:#ABBEED; --accent-2:#DBD1ED; --btn-fg:#16150F;
-  --border:rgba(237,232,208,.15); --shadow:0 10px 26px rgba(0,0,0,.45);
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -79,6 +68,7 @@ header{padding:3.2rem 0 .5rem}
 .card li{margin:.35rem 0}
 .card.proven{border-left:3px solid var(--accent)}
 .card.unproven{border-left:3px solid var(--accent-2)}
+.legend .swatch{border:1px solid rgba(46,42,24,.18)}
 
 /* Meters: one ratio against its own limit, single hue, same-ramp track. */
 table.results{width:100%;border-collapse:collapse;margin:1.1rem 0;font-size:.9rem}
