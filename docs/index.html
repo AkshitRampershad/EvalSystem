@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EvalSystem</title>
+<title>PatchProof</title>
 <meta name="description" content="When a service you depend on changes, the obvious fix passes every check and silently stops doing the job. An agent that repairs integrations, a gate that refuses fixes which only look correct, and a benchmark on 71 real breaking changes.">
 <style>
 /* Design tokens taken from the author's existing site, not a new palette. */
@@ -183,7 +183,7 @@ footer{margin:3.5rem 0 2.5rem;padding-top:1.2rem;border-top:1px solid var(--bord
 <main class="wrap">
 
 <header>
-  <p class="kicker">EvalSystem &middot; open source</p>
+  <p class="kicker">PatchProof &middot; open source</p>
   <h1>The obvious fix passes every check and silently stops working.</h1>
   <p class="lede">When a service you depend on changes its API, the repair that
   looks correct is usually the one that quietly loses money. This is an agent that
@@ -432,14 +432,14 @@ of a human reading a changelog.</p>
 
 <h2>Run it</h2>
 <p>No dependencies, no API key, about a minute.</p>
-<pre>git clone https://github.com/AkshitRampershad/EvalSystem &amp;&amp; cd EvalSystem
+<pre>git clone https://github.com/AkshitRampershad/PatchProof &amp;&amp; cd PatchProof
 python3 run_demo.py                          <span style="color:var(--text-3)"># watch it adapt</span>
 python3 -m bench.run                         <span style="color:var(--text-3)"># score it on real drift</span>
 python3 -m unittest discover -s tests -t .   <span style="color:var(--text-3)"># 144 tests</span></pre>
 
 <div class="cta">
-  <a class="btn" href="https://github.com/AkshitRampershad/EvalSystem">Read the code</a>
-  <a class="btn ghost" href="https://github.com/AkshitRampershad/EvalSystem#what-the-numbers-say">Full results</a>
+  <a class="btn" href="https://github.com/AkshitRampershad/PatchProof">Read the code</a>
+  <a class="btn ghost" href="https://github.com/AkshitRampershad/PatchProof#what-the-numbers-say">Full results</a>
 </div>
 
 <footer>
