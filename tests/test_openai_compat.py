@@ -163,6 +163,55 @@ class TestDegradation(unittest.TestCase):
         self.assertIsInstance(patches, list)
 
 
+class TestRateLimiting(unittest.TestCase):
+    """A free tier will rate-limit a 71-case run. Treating that as an answer
+    would fill the row with heuristic fallbacks and report it as a measurement of
+    the model."""
+
+    def setUp(self):
+        import sell.openai_compat as oc
+        self._saved = oc.RATE_LIMIT_BACKOFF
+        oc.RATE_LIMIT_BACKOFF = (0.0, 0.0, 0.0)
+
+    def tearDown(self):
+        import sell.openai_compat as oc
+        oc.RATE_LIMIT_BACKOFF = self._saved
+
+    @staticmethod
+    def _limited(times: int):
+        state = {"n": 0}
+
+        def transport(url, payload, headers):
+            state["n"] += 1
+            if state["n"] <= times:
+                return 429, json.dumps({"error": {"message": "rate limit reached"}})
+            return reply(GOOD)
+
+        return transport, state
+
+    def test_it_waits_and_retries_rather_than_giving_up(self):
+        transport, state = self._limited(2)
+        r = OpenAICompatReasoner("groq", api_key="k", transport=transport)
+        patches = r.propose(SIGNALS, ctx())
+        self.assertEqual(state["n"], 3)
+        self.assertEqual(r.rate_limit_waits, 2)
+        self.assertEqual(r.fallbacks, 0, "a recovered 429 is not a fallback")
+        self.assertTrue(any(ru.op == "rename" for p in patches for ru in p.add))
+
+    def test_persistent_rate_limiting_is_counted_as_a_fallback(self):
+        transport, _ = self._limited(99)
+        r = OpenAICompatReasoner("groq", api_key="k", transport=transport)
+        r.propose(SIGNALS, ctx())
+        self.assertEqual(r.fallbacks, 1)
+        self.assertIn("429", r.last_error or "")
+
+    def test_fallbacks_are_counted_so_a_degraded_run_is_visible(self):
+        r = OpenAICompatReasoner("groq", api_key="", transport=Recorder())
+        for _ in range(3):
+            r.propose(SIGNALS, ctx())
+        self.assertEqual(r.fallbacks, 3)
+
+
 class TestResponseHandling(unittest.TestCase):
     def _propose(self, content: str):
         r = OpenAICompatReasoner("groq", api_key="k", transport=Recorder(reply(content)))

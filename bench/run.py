@@ -108,6 +108,22 @@ def main(argv: list[str] | None = None) -> int:
                   f"its hypotheses come from the heuristic fallback")
     reports = [scoring.run(case_set, solver) for solver in solvers]
 
+    # A row is only a measurement of the model it names if the model answered for
+    # every case. Say loudly when it did not.
+    for solver, report in zip(solvers, reports):
+        reasoner = getattr(solver, "reasoner", None)
+        degraded = getattr(reasoner, "fallbacks", 0)
+        if not degraded:
+            continue
+        waits = getattr(reasoner, "rate_limit_waits", 0)
+        print(f"\n  WARNING: {report.solver} fell back to heuristics on "
+              f"{degraded}/{report.total} cases"
+              + (f" after {waits} rate-limit waits" if waits else "")
+              + f" (last error: {getattr(reasoner, 'last_error', None)}).")
+        print("  This row is NOT a clean measurement of that model. Re-run with a "
+              "higher rate limit,")
+        print("  or a paid tier, before quoting the number.")
+
     if args.json:
         print(json.dumps({"cases": len(case_set),
                           "reports": [r.as_dict() for r in reports]}, indent=2))

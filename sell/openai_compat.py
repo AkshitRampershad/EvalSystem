@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -29,6 +30,11 @@ from . import hypotheses
 from .sensors import Signal
 
 TIMEOUT = 120
+# Free tiers rate-limit, and a run of 71 cases will hit it. Treating a 429 as
+# fatal would silently fill the row with heuristic fallbacks and report it as a
+# measurement of the model, which is worse than failing.
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_BACKOFF = (2.0, 5.0, 12.0)
 
 
 class Transport(Protocol):
@@ -94,6 +100,11 @@ class OpenAICompatReasoner:
         self.name = f"{preset.name}:{self.model}"
         self.calls = 0
         self.last_error: str | None = None
+        # How often a hypothesis came from the fallback instead of this model.
+        # Surfaced by the benchmark so a degraded run cannot be mistaken for a
+        # clean one.
+        self.fallbacks = 0
+        self.rate_limit_waits = 0
         self._format_mode = "json_schema"   # degrades on rejection, then sticks
         if fallback is None:
             from .reasoner import HeuristicReasoner
@@ -158,11 +169,15 @@ class OpenAICompatReasoner:
 
     # -- the interface every reasoner shares -----------------------------
 
+    def _degrade(self, signals: list[Signal], ctx: Any) -> list[Any]:
+        self.fallbacks += 1
+        return self.fallback.propose(signals, ctx)
+
     def propose(self, signals: list[Signal], ctx: Any) -> list[Any]:
         unavailable = self.available()
         if unavailable:
             self.last_error = unavailable
-            return self.fallback.propose(signals, ctx)
+            return self._degrade(signals, ctx)
 
         prompt = hypotheses.build_prompt(signals, ctx)
         headers = {"Authorization": f"Bearer {self.api_key}",
@@ -170,12 +185,14 @@ class OpenAICompatReasoner:
                    "User-Agent": "sell-engine/0.1"}
         url = self.base_url.rstrip("/") + "/chat/completions"
 
-        # Two attempts at most: one on the current format mode, one after
-        # degrading it. A model that cannot honour a schema is a formatting
-        # limitation, not a wrong answer.
-        for _ in range(2):
+        # Bounded attempts: one per structured-output degradation step, plus
+        # retries when rate-limited. A model that cannot honour a schema is a
+        # formatting limitation; a 429 is a queue, not an answer.
+        rate_limited = 0
+        for _ in range(2 + RATE_LIMIT_RETRIES):
             self.calls += 1
             status, body = self.transport(url, self._payload(prompt), headers)
+
             if status == 200:
                 content = self._content(body)
                 data = hypotheses.extract_json(content or "")
@@ -183,23 +200,29 @@ class OpenAICompatReasoner:
                     self.last_error = "response was not usable JSON"
                     break
                 patches = hypotheses.to_patches(data, signals, ctx, self.name)
+                self.last_error = None
                 if not patches:
                     # An explicitly empty candidate list is a real answer: the
                     # model is declining to invent a destination, which the
-                    # prompt asks it to do.
-                    self.last_error = None
+                    # prompt asks it to do. Not a fallback.
                     return list(self.fallback.propose(signals, ctx))
-                self.last_error = None
                 return patches + list(self.fallback.propose(signals, ctx))
 
             self.last_error = self._error(status, body)
+
+            if status == 429 and rate_limited < RATE_LIMIT_RETRIES:
+                time.sleep(RATE_LIMIT_BACKOFF[rate_limited])
+                rate_limited += 1
+                self.rate_limit_waits += 1
+                continue
+
             if status == 400 and self._format_mode != "none":
                 self._format_mode = ("json_object"
                                      if self._format_mode == "json_schema" else "none")
                 continue
             break
 
-        return self.fallback.propose(signals, ctx)
+        return self._degrade(signals, ctx)
 
 
 def build(endpoint: str = "groq", **kw: Any) -> OpenAICompatReasoner:
