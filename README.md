@@ -1,7 +1,6 @@
-# EvalSystem
+# PatchProof
 
-**When a service you depend on changes, the obvious fix passes every check and
-silently stops doing the job.**
+**PatchProof detects API contract drift, generates candidate repairs, and verifies that autonomous changes preserve existing capabilities before they are applied.**
 
 This is three things: an agent that repairs a broken integration by itself, a
 gate that refuses fixes which only *look* correct, and a benchmark built from 71
