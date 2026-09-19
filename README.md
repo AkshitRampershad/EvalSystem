@@ -178,6 +178,100 @@ UNVERIFIED, because nothing has tested them and nothing should adopt them. That
 boundary is deliberate — the gate is what makes the loop safe, so it is better
 to be visibly absent than quietly skipped.
 
+## The benchmark
+
+`bench/` is what makes the claims here falsifiable. It mines drift events out of
+a provider's real version history, labels them without human annotation, and
+scores any solver against them.
+
+```bash
+python3 -m bench.run                              # the whole ladder
+python3 -m bench.run --solver agent --detail      # per-case results
+python3 -m bench.run --solver agent --only unsafe # just the failures
+python3 -m bench.run --mine                       # re-mine from history
+```
+
+71 cases across nine windows of Stripe's published history, Nov 2022 to Aug 2026.
+Each case is one real breaking change plus a request that worked before it. Two
+properties are enforced at mining time and re-asserted by the test suite, because
+a benchmark whose data rots keeps printing numbers while measuring nothing: the
+request must be **valid under the old contract**, and must be **invalid under the
+new one**.
+
+### Labels come from structure, not opinion
+
+Each case carries an expected outcome derived from the shape of the change:
+
+- **adapt** (27 cases) — the new contract contains enough to fix this locally: a
+  renamed field with an evident successor, a newly required field, an enum value
+  with a clear counterpart.
+- **ask** (44 cases) — it does not. A field removed with no successor anywhere,
+  or a value set replaced wholesale. Here *guessing is the failure*: a value
+  written into an unrelated field validates perfectly and is worse than no change
+  at all, because nothing downstream will ever complain.
+
+Those two rates are reported separately, because they are trivially tradeable —
+a solver that never adapts scores 100% on the second.
+
+### Results
+
+```
+solver                     adapt     ask  UNSAFE  safety
+noop                        0/27    0/44       0    100%
+escalate-always             0/27   44/44       0    100%
+drop-ungated                0/27    0/44      71      0%
+drop-gated                  0/27   44/44       0    100%
+agent-heuristic-ungated     3/27    0/44      60     15%
+agent-heuristic             7/27   36/44       2     97%
+```
+
+Read `UNSAFE` first. It counts cases where a solver adopted a change that is
+invalid, silently dropped a capability, or guessed where the contract held no
+answer. Every other outcome leaves the integration in a state a human can reason
+about; an unsafe one does not, and looks like success.
+
+Four things this says, including two that are unflattering:
+
+**The gate is the most valuable component by a wide margin.** The naive fix —
+stop sending whatever broke — is unsafe on **71 of 71** cases. Behind the gate,
+the identical solver is unsafe on zero. The same holds for the real agent: 60
+unsafe ungated, 2 gated. Nothing else in this repository moves a number that far.
+
+**The heuristic reasoner barely earns its place.** It adapts correctly on 7 of 27
+solvable cases, and it asks correctly less often than a solver that does nothing
+but ask (36/44 against 44/44). Its entire contribution over the trivial floor is
+7 adaptations — real, but a long way from a system that maintains an integration
+by itself. That gap is the argument for `--reasoner claude`, and **that number is
+not yet measured**: it needs API credentials this environment does not have. The
+benchmark exists to answer that question, and until it is run the honest claim is
+that the heuristic tier is close to the floor.
+
+**Most real drift is not locally solvable.** 44 of 71 cases carry no evidence of
+where a capability went. Any pitch resting on an agent that fixes drift
+unattended has to account for that: the realistic ceiling for full autonomy on
+this provider is about 38%, and the rest is an agent asking one good question
+instead of a human reading a changelog.
+
+**The unflattering part was found by auditing the benchmark, not the agent.** An
+earlier version of the scorer reported 42% solved. Reading the per-case output
+showed what it was rewarding: `rename coupon -> phone`, `rename promotion_code ->
+address.postal_code`, and `rename coupon -> {customer}`, which writes a coupon
+code into a **path parameter** and addresses a different resource entirely. All
+three validated and all three preserved the value, so all three scored as
+successes. The fixes were a stricter rename threshold (0.3 similarity was
+coincidence, not evidence), excluding path parameters as rename destinations, and
+per-case expected outcomes so that guessing is scored as the failure it is.
+
+A benchmark that flatters the system it measures is worse than none, because it
+retires the question.
+
+### Adding a solver
+
+Implement `solve(case, old_contract, new_contract) -> Attempt` and register it in
+`bench/solvers.py`. The baselines are there to be beaten: any solver that does
+not beat `escalate-always` on the `adapt` column has contributed nothing, however
+good its overall percentage looks.
+
 ## Layout
 
 | file | role |
@@ -194,6 +288,13 @@ to be visibly absent than quietly skipped.
 | `sell/real/diff.py` | structural diff with breaking / additive / cosmetic verdicts |
 | `sell/real/sources.py` | version discovery, fetch and cache for real specs |
 | `sell/real/scan.py` | CLI: measure real drift between two shipped versions |
+| `sell/real/validator.py` | request validation against a provider's own contract |
+| `sell/real/gate.py` | the three-tier verification gate and the capability check |
+| `bench/mine.py` | mine labelled drift cases from real version history |
+| `bench/solvers.py` | the agent under test, plus baselines built to fail |
+| `bench/score.py` | four outcomes; only one of them is a real failure |
+| `bench/run.py` | CLI: run the ladder and print the table |
+| `data/stripe-drift-v1.json.gz` | 71 committed cases, so runs are comparable |
 
 ## Using Claude for hypothesis generation
 

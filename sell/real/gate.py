@@ -137,8 +137,24 @@ class CapabilityCheck:
                 continue
             wanted: set[str] = set()
             self._scalars(value, wanted)
-            # Kept only if every scalar it carried is still somewhere in the
-            # request. A partial carry is a partial loss, and counts as loss.
+
+            if after.get(key) not in (None, "", [], {}):
+                # Still present under the same key. Distinguish two cases that
+                # look alike and are not:
+                #   recoded  -- the value was replaced outright (an enum the
+                #               provider renamed, a unit conversion). Nothing is
+                #               missing, and flagging it would block the most
+                #               common correct adaptation there is.
+                #   reduced  -- some of what it carried survived and some did
+                #               not, which is a partial loss however valid the
+                #               request looks.
+                held: set[str] = set()
+                self._scalars(after.get(key), held)
+                if wanted & held and not wanted <= held:
+                    gone.append(key)
+                continue
+            # The key is gone, so the capability survives only if the value it
+            # carried turned up somewhere else. A partial carry is a loss.
             if wanted and not wanted <= surviving:
                 gone.append(key)
         return sorted(gone)
@@ -151,6 +167,48 @@ class CapabilityCheck:
                 f"where it moved. Was this capability removed, or does it now go "
                 f"somewhere else in "
                 f"{contract.get('operation', 'this operation')}?")
+
+
+def _stuck_question(rejected: list[tuple[str, str]], contract: dict[str, Any],
+                    payload: dict[str, Any]) -> str | None:
+    """A specific question for the case where nothing worked at all.
+
+    Failing silently and asking a question are very different outcomes for an
+    operator. When every candidate died on the same field, there is exactly one
+    thing the agent does not know, and naming it is far more useful than
+    reporting that adaptation failed.
+
+    Deliberately not attempted: guessing. When a provider replaces an entire
+    value set, the positional mapping is often wrong, and a wrong value that
+    validates is the failure mode this whole gate exists to avoid.
+    """
+    fields: dict[str, int] = {}
+    for _desc, why in rejected:
+        # Reasons are formatted "<tier>: <code> on '<field>'".
+        if "'" not in why:
+            continue
+        name = why.split("'")[1]
+        fields[name] = fields.get(name, 0) + 1
+    if len(fields) != 1:
+        return None
+    name = next(iter(fields))
+    facts = contract.get("fields", {}).get(name)
+    operation = contract.get("operation", "this operation")
+    if facts is None:
+        return (f"'{name}' is no longer part of {operation} and nothing tried "
+                f"produced a valid request. Where should its value go?")
+    allowed = facts.get("allowed")
+    if allowed:
+        sent = payload.get(name)
+        return (f"'{name}' was sent as {sent!r}, which {operation} no longer "
+                f"accepts. The contract now allows {allowed}, and none of them "
+                f"resembles the old value closely enough to map safely. Which of "
+                f"them corresponds to {sent!r}?")
+    return (f"No valid request could be produced for '{name}' in {operation}. "
+            f"The contract now expects type {facts.get('type')!r}"
+            + (f" with maxLength {facts['max_length']}"
+               if facts.get("max_length") else "")
+            + f"; we are sending {payload.get(name)!r}. How should it be converted?")
 
 
 # ---------------------------------------------------------------------------
@@ -345,5 +403,9 @@ class RealGate:
         if escalation is not None:
             escalation.rejected = rejected
             return escalation
-        return Verdict(patch=None, tier=REJECTED, rejected=rejected,
+        # Nothing survived. If every candidate failed on the same field, the agent
+        # has one specific thing it does not know -- which is worth saying.
+        stuck = _stuck_question(rejected, self.contract, before) if rejected else None
+        return Verdict(patch=None, tier=NEEDS_HUMAN if stuck else REJECTED,
+                       rejected=rejected, question=stuck,
                        schema_checks=self.oracle.checks)

@@ -38,6 +38,22 @@ def _norm(s: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(s).lower())
 
 
+# Below this, two field names are not evidence of a rename -- they are a
+# coincidence. Learned the hard way: at 0.3 this proposed moving a coupon code
+# into a phone number field, and the request validated.
+RENAME_SIMILARITY = 0.6
+
+
+def _rename_targets(names: Any) -> list[str]:
+    """Fields a value may legitimately be moved into.
+
+    A path parameter is part of the request's address, not its data. Writing a
+    business value into one produces a request for a different resource, which
+    validates perfectly and is catastrophic.
+    """
+    return [n for n in names if not (n.startswith("{") and n.endswith("}"))]
+
+
 @dataclass
 class Context:
     policy: Any
@@ -58,8 +74,9 @@ class HeuristicReasoner:
         removed = [s for s in signals if s.kind == "field_removed"]
         added = [s for s in signals if s.kind == "field_added"]
         for r in removed:
-            names = [a.detail["field"] for a in added]
-            best = difflib.get_close_matches(r.detail["field"], names, n=1, cutoff=0.3)
+            names = _rename_targets(a.detail["field"] for a in added)
+            best = difflib.get_close_matches(r.detail["field"], names, n=1,
+                                            cutoff=RENAME_SIMILARITY)
             if best:
                 patches.append(self._rename(r.detail["field"], best[0], r, ctx))
 
@@ -108,16 +125,20 @@ class HeuristicReasoner:
             # distance cannot find it and only `drop` is proposed. That gap is
             # where a model-backed reasoner earns its cost.
             fld = d["field"]
-            known = [n for n in ctx.model.spec.get("fields", {}) if n != fld]
-            for target in difflib.get_close_matches(fld, known, n=2, cutoff=0.6):
+            known = _rename_targets(n for n in ctx.model.spec.get("fields", {})
+                                    if n != fld)
+            for target in difflib.get_close_matches(fld, known, n=2,
+                                                   cutoff=RENAME_SIMILARITY):
                 out.append(self._rename(fld, target, s, ctx))
             out.append(Patch(add=[Rule("drop", {"field": fld}, provenance=prov)],
                              rationale=f"'{fld}' was removed from the contract"))
 
         elif s.kind == "unknown_field":
             fld = d["field"]
-            known = d.get("known_fields") or list(ctx.model.spec.get("fields", {}))
-            best = difflib.get_close_matches(fld, known, n=2, cutoff=0.3)
+            known = _rename_targets(d.get("known_fields")
+                                    or list(ctx.model.spec.get("fields", {})))
+            best = difflib.get_close_matches(fld, known, n=2,
+                                            cutoff=RENAME_SIMILARITY)
             for target in best:
                 out.append(self._rename(fld, target, s, ctx))
             out.append(Patch(add=[Rule("drop", {"field": fld}, provenance=prov)],

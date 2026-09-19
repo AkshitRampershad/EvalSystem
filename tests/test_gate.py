@@ -137,11 +137,11 @@ class TestGateTiers(unittest.TestCase):
         self.assertTrue(patch.add[0].verified,
                         "an adopted rule must be marked environment-verified")
 
-    def test_a_schema_invalid_fix_is_rejected(self):
+    def test_a_schema_invalid_fix_is_never_adoptable(self):
         patch = Patch(add=[Rule("set_const", {"field": "nope", "value": 1})])
         verdict = gt.RealGate(C2).evaluate(Policy(), [patch], {"name": "W"})
-        self.assertEqual(verdict.tier, gt.REJECTED)
         self.assertFalse(verdict.adoptable)
+        self.assertIn(verdict.tier, (gt.REJECTED, gt.NEEDS_HUMAN))
         self.assertIn("schema", verdict.rejected[0][1])
 
     def test_a_lossy_fix_escalates_instead_of_being_adopted(self):
@@ -174,7 +174,7 @@ class TestGateTiers(unittest.TestCase):
                                               "mapping": {"turbo": "warp"}})])
         verdict = gt.RealGate(C2).evaluate(policy, [patch], breaks_old,
                                            regression=[good, breaks_old])
-        self.assertEqual(verdict.tier, gt.REJECTED)
+        self.assertFalse(verdict.adoptable)
         self.assertTrue(any("schema" in why for _, why in verdict.rejected))
 
     def test_accumulated_assertions_gate_before_the_schema(self):
