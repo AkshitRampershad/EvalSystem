@@ -296,6 +296,52 @@ good its overall percentage looks.
 | `bench/run.py` | CLI: run the ladder and print the table |
 | `data/stripe-drift-v1.json.gz` | 71 committed cases, so runs are comparable |
 
+## Model tiers for hypothesis generation
+
+The reasoner is the one pluggable component, because the gate does not care who
+produced a hypothesis — only whether it survives verification. Every tier shares
+the same prompt, the same op allow-list and the same parsing in
+`sell/hypotheses.py`, so their benchmark rows are comparable, and a model's
+response is treated as untrusted input on every one of them.
+
+| tier | endpoint | credential |
+|---|---|---|
+| `heuristic` | none — offline pattern matching | none (the default) |
+| `claude` | Anthropic Messages API | `ANTHROPIC_API_KEY` |
+| `groq` | Groq, OpenAI-compatible | `GROQ_API_KEY` |
+| `together`, `openrouter` | same shape | `TOGETHER_API_KEY`, `OPENROUTER_API_KEY` |
+| `local` | a local vLLM or Ollama server | none by default |
+
+```bash
+export GROQ_API_KEY=...            # never paste a key into a chat or a commit
+export GROQ_MODEL=openai/gpt-oss-120b   # optional; each tier has a default
+python3 -m bench.run --solver agent --solver groq
+python3 run_demo.py --reasoner groq
+```
+
+No vendor SDK is needed for the OpenAI-compatible tiers — they use stdlib HTTP,
+so the project stays dependency-free. Only the `claude` tier needs
+`pip install -r requirements.txt`.
+
+Structured-output support varies by endpoint and model, so a request degrades in
+three steps: `json_schema`, then `json_object`, then a plain instruction with
+tolerant extraction. A model that cannot honour a schema should not have a
+formatting limitation recorded as a reasoning failure.
+
+If a tier's credential is missing, the run says so and its hypotheses come from
+the heuristic fallback — a row is never allowed to read as a measurement of a
+model that was never called.
+
+### Note on network egress
+
+Reaching a model endpoint requires that the environment permit it. In a sandbox
+with a restrictive egress policy the call fails at the socket, which surfaces as
+`last_error` and a fall back to heuristics rather than a crash — but it also means
+the tier cannot be measured there. `api.groq.com` is denied by the policy of the
+environment this was developed in, so **the Groq row has not been measured**; the
+code path is covered by tests with an injected transport, and the number needs a
+run somewhere the endpoint is reachable.
+
 ## Using Claude for hypothesis generation
 
 The default reasoner pattern-matches failure shapes that were anticipated in

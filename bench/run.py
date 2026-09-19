@@ -69,7 +69,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="bench.run")
     ap.add_argument("--cases", default=str(DEFAULT_CASES))
     ap.add_argument("--solver", action="append",
-                    help="repeatable; default runs the whole ladder")
+                    help="repeatable; baselines (noop, escalate-always, drop, "
+                         "drop-ungated, agent) or a reasoner tier (claude, groq, "
+                         "together, openrouter, local), optionally '-ungated'. "
+                         "Default runs the whole offline ladder.")
     ap.add_argument("--detail", action="store_true", help="per-case outcomes")
     ap.add_argument("--only", help="show only this result class in --detail",
                     choices=[scoring.SOLVED, scoring.ESCALATED,
@@ -93,7 +96,17 @@ def main(argv: list[str] | None = None) -> int:
     print()
 
     specs = args.solver or LADDER
-    reports = [scoring.run(case_set, build_solver(s)) for s in specs]
+    solvers = [build_solver(s) for s in specs]
+    for solver in solvers:
+        # Say so up front when a tier silently degraded, rather than letting its
+        # row be read as a measurement of the model it names.
+        reasoner = getattr(solver, "reasoner", None)
+        unavailable = (reasoner.available() if hasattr(reasoner, "available")
+                       else getattr(reasoner, "last_error", None))
+        if reasoner is not None and unavailable:
+            print(f"  note: {solver.name} is unavailable ({unavailable}); "
+                  f"its hypotheses come from the heuristic fallback")
+    reports = [scoring.run(case_set, solver) for solver in solvers]
 
     if args.json:
         print(json.dumps({"cases": len(case_set),

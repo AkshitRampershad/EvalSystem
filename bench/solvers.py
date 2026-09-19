@@ -125,7 +125,11 @@ class AgentSolver:
 
 
 def build_solver(spec: str) -> Any:
-    """'noop' | 'drop' | 'drop-ungated' | 'agent' | 'agent-ungated' | 'claude'"""
+    """Baselines by name, or any reasoner tier as `<name>` / `<name>-ungated`.
+
+    Reasoner tiers come from `sell.reasoner.build_reasoner`, so a new model
+    endpoint becomes a benchmark row without touching this file.
+    """
     table = {
         "noop": lambda: NoopSolver(),
         "escalate-always": lambda: AlwaysEscalateSolver(),
@@ -133,8 +137,8 @@ def build_solver(spec: str) -> Any:
         "drop-ungated": lambda: DropSolver(gated=False),
         "agent": lambda: AgentSolver("heuristic", gated=True),
         "agent-ungated": lambda: AgentSolver("heuristic", gated=False),
-        "claude": lambda: AgentSolver("claude", gated=True),
     }
-    if spec not in table:
-        raise KeyError(f"unknown solver {spec!r}; choose from {sorted(table)}")
-    return table[spec]()
+    if spec in table:
+        return table[spec]()
+    gated = not spec.endswith("-ungated")
+    return AgentSolver(spec.removesuffix("-ungated"), gated=gated)

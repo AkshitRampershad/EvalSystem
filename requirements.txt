@@ -1,8 +1,8 @@
-# The prototype runs with no dependencies at all: the heuristic reasoner is
-# stdlib-only, and that is the default.
+# The prototype and the benchmark run with no dependencies at all: the heuristic
+# reasoner is stdlib-only, and so are the OpenAI-compatible model tiers (groq,
+# together, openrouter, local), which speak plain HTTP.
 #
-# Install this only to use --reasoner claude, which hands hypothesis generation
-# to the model and so handles drift shapes the heuristics were never taught.
-# It also needs ANTHROPIC_API_KEY (or an `ant auth login` profile) in the
-# environment; without one the agent falls back to heuristics and says so.
+# Install this only for --reasoner claude, which also needs ANTHROPIC_API_KEY (or
+# an `ant auth login` profile). Without credentials any model tier falls back to
+# heuristics and says so rather than pretending.
 anthropic>=1.0.0

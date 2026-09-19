@@ -24,14 +24,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import hypotheses
+from .hypotheses import KNOWN_OPS
 from .policy import Patch, Rule
 from .sensors import Signal
 
 MODEL = "claude-opus-5"
-
-KNOWN_OPS = {"rename": {"from", "to"}, "drop": {"field"}, "set_const": {"field", "value"},
-             "divide_int": {"field", "by"}, "multiply": {"field", "by"},
-             "map_value": {"field", "mapping"}, "suffix": {"field", "suffix"}}
 
 
 def _norm(s: Any) -> str:
@@ -266,68 +264,6 @@ class HeuristicReasoner:
 
 # --------------------------------------------------------------------------
 
-_PATCH_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "candidates": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "rationale": {"type": "string"},
-                    "remove_rule_ids": {"type": "array", "items": {"type": "string"}},
-                    "add_rules": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "op": {"type": "string",
-                                       "enum": sorted(KNOWN_OPS)},
-                                "args_json": {"type": "string",
-                                              "description": "JSON object of arguments for the op"},
-                            },
-                            "required": ["op", "args_json"],
-                            "additionalProperties": False,
-                        },
-                    },
-                },
-                "required": ["rationale", "remove_rule_ids", "add_rules"],
-                "additionalProperties": False,
-            },
-        }
-    },
-    "required": ["candidates"],
-    "additionalProperties": False,
-}
-
-_SYSTEM = """You maintain an integration between an internal canonical record \
-and a partner API whose contract changes without warning.
-
-You are given: the signals that just fired, the contract as currently observed, \
-the policy (an ordered transform pipeline) the integration is running, and one \
-canonical record.
-
-Propose candidate patches to the policy that would make the integration correct \
-again. Order them best-first. Two or three well-reasoned candidates beat ten \
-speculative ones.
-
-Available ops and their args:
-  rename     {"from": str, "to": str}
-  drop       {"field": str}
-  set_const  {"field": str, "value": any}
-  divide_int {"field": str, "by": int}
-  multiply   {"field": str, "by": int}
-  map_value  {"field": str, "mapping": {old: new}}
-  suffix     {"field": str, "suffix": str}
-
-Rules apply in order to a copy of the canonical record. Removing an existing \
-rule is often the right fix -- prefer it to piling a new rule on top of a stale \
-one. Every candidate will be tested against the partner's sandbox and against \
-an accumulated regression suite before anything is adopted, so propose the \
-hypothesis you think is right rather than the one that is safest to be wrong \
-about."""
-
-
 class ClaudeReasoner:
     """Hypothesis generation for drift shapes nobody enumerated in advance."""
 
@@ -358,68 +294,59 @@ class ClaudeReasoner:
         client = self._client_or_none()
         if client is None:
             return self.fallback.propose(signals, ctx)
-        prompt = json.dumps({
-            "signals": [{"kind": s.kind, "source": s.source, "detail": s.detail}
-                        for s in signals],
-            "observed_contract": ctx.model.spec,
-            "current_policy": json.loads(ctx.policy.to_json()),
-            "canonical_record": ctx.canonical,
-        }, indent=2, default=str)
+        prompt = hypotheses.build_prompt(signals, ctx)
         try:
             self.calls += 1
             response = client.messages.create(
                 model=self.model,
                 max_tokens=16000,
-                system=_SYSTEM,
+                system=hypotheses.SYSTEM,
                 thinking={"type": "adaptive"},
                 output_config={"effort": "high",
-                               "format": {"type": "json_schema", "schema": _PATCH_SCHEMA}},
+                               "format": {"type": "json_schema",
+                                          "schema": hypotheses.PATCH_SCHEMA}},
                 messages=[{"role": "user", "content": prompt}],
             )
             if response.stop_reason == "refusal":
                 self.last_error = "model declined the request"
                 return self.fallback.propose(signals, ctx)
             text = next(b.text for b in response.content if b.type == "text")
-            data = json.loads(text)
+            data = hypotheses.extract_json(text) or {}
         except Exception as exc:                      # noqa: BLE001 - degrade, never crash
             self.last_error = f"{type(exc).__name__}: {exc}"
             return self.fallback.propose(signals, ctx)
 
-        patches = [p for p in (self._to_patch(c, signals, ctx)
-                               for c in data.get("candidates", [])) if p]
+        patches = hypotheses.to_patches(data, signals, ctx, self.name)
         # The heuristics are cheap; keep them as backstop candidates so a poor
         # generation never leaves the agent with nothing to try.
         return patches + self.fallback.propose(signals, ctx)
 
-    def _to_patch(self, cand: dict[str, Any], signals: list[Signal],
-                  ctx: Context) -> Patch | None:
-        prov = {"reasoner": self.name, "tick": ctx.tick,
-                "signals": [s.kind for s in signals],
-                "rationale": cand.get("rationale", "")}
-        rules: list[Rule] = []
-        for raw in cand.get("add_rules", []):
-            op = raw.get("op")
-            if op not in KNOWN_OPS:
-                return None
-            try:
-                args = json.loads(raw.get("args_json") or "{}")
-            except json.JSONDecodeError:
-                return None
-            if not isinstance(args, dict) or not KNOWN_OPS[op] <= set(args):
-                return None
-            rules.append(Rule(op, args, provenance=prov))
-        valid_ids = {r.id for r in ctx.policy.rules}
-        removes = [rid for rid in cand.get("remove_rule_ids", []) if rid in valid_ids]
-        if not rules and not removes:
-            return None
-        return Patch(add=rules, remove=removes, rationale=cand.get("rationale", ""))
-
-
 def build_reasoner(kind: str = "auto") -> Any:
+    """'heuristic' | 'claude' | 'groq' | any endpoint in openai_compat.PRESETS.
+
+    'auto' picks the best tier whose credentials are actually present, so a run
+    never silently pretends to a capability it does not have.
+    """
     if kind == "heuristic":
         return HeuristicReasoner()
-    reasoner = ClaudeReasoner()
+
+    if kind != "auto" and kind != "claude":
+        # Imported lazily: that module must not pull in the Anthropic SDK, and
+        # this one must not require an OpenAI-compatible endpoint to exist.
+        from .openai_compat import PRESETS, OpenAICompatReasoner
+        if kind in PRESETS:
+            return OpenAICompatReasoner(kind)
+        raise KeyError(f"unknown reasoner {kind!r}; choose 'heuristic', 'claude', "
+                       f"or one of {sorted(PRESETS)}")
+
+    claude = ClaudeReasoner()
     if kind == "claude":
-        return reasoner
-    # auto: use Claude when credentials exist, heuristics otherwise
-    return reasoner if reasoner._client_or_none() is not None else HeuristicReasoner()
+        return claude
+    if claude._client_or_none() is not None:
+        return claude
+    from .openai_compat import PRESETS, OpenAICompatReasoner
+    for name in PRESETS:
+        candidate = OpenAICompatReasoner(name)
+        if candidate.available() is None:
+            return candidate
+    return HeuristicReasoner()
