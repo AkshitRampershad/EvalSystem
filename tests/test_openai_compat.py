@@ -311,6 +311,67 @@ class TestUntrustedResponses(unittest.TestCase):
             self.assertIsInstance(self._patches(payload), list)
 
 
+class TestPromptBudget(unittest.TestCase):
+    """The prompt has to stay small enough to run, and complete enough to solve.
+
+    Sending the whole contract cost ~2,750 tokens a case, so a 71-case benchmark
+    run could not fit in a free tier's daily allowance at all. Trimming it is only
+    safe while the fields a correct answer needs are still visible.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from bench.cases import CaseSet
+        from bench.run import DEFAULT_CASES
+        from bench.solvers import _signals
+        cls.cases = CaseSet.load(DEFAULT_CASES)
+        cls._signals = staticmethod(_signals)
+
+    def _prompt(self, case):
+        model = EnvironmentModel()
+        model.adopt(self.cases.new_contract(case))
+        return hypotheses.build_prompt(
+            self._signals(case, self.cases.old_contract(case),
+                          self.cases.new_contract(case)),
+            Context(policy=Policy(), model=model, canonical=case.payload, tick=0))
+
+    def test_a_full_run_fits_a_free_tier_daily_allowance(self):
+        chars = sum(len(self._prompt(c)) for c in self.cases)
+        approx_tokens = chars // 4
+        self.assertLess(approx_tokens, 120_000,
+                        "prompt growth would push a full run past a free tier cap")
+
+    def test_no_single_prompt_is_enormous(self):
+        worst = max(len(self._prompt(c)) for c in self.cases)
+        self.assertLess(worst // 4, 12_000)
+
+    def test_the_changed_field_is_always_described(self):
+        for case in self.cases:
+            self.assertIn(case.focus_field, self._prompt(case), case.case_id)
+
+    def test_a_rename_destination_is_always_still_visible(self):
+        """A model cannot propose a field it was never shown, so trimming must
+        never hide the answer."""
+        for case in self.cases:
+            if case.expected_target:
+                self.assertIn(case.expected_target, self._prompt(case), case.case_id)
+
+    def test_unrelated_fields_survive_as_names_only(self):
+        big = max(self.cases, key=lambda c: len(self.cases.new_contract(c)["fields"]))
+        data = json.loads(self._prompt(big))
+        contract = data["observed_contract"]
+        self.assertIn("other_accepted_field_names", contract)
+        self.assertLess(len(contract["fields"]),
+                        len(self.cases.new_contract(big)["fields"]),
+                        "nothing was trimmed from the largest contract")
+
+    def test_signals_do_not_repeat_the_whole_field_list(self):
+        """`known_fields` appeared on every invariant signal, duplicating the
+        contract once per signal."""
+        for case in self.cases:
+            self.assertNotIn("known_fields", self._prompt(case), case.case_id)
+
+
 class TestSharedPlumbing(unittest.TestCase):
     def test_the_prompt_forbids_writing_into_a_path_parameter(self):
         self.assertIn("path parameter", hypotheses.SYSTEM)

@@ -9,7 +9,9 @@ must not reach the policy pipeline no matter which vendor produced it.
 
 from __future__ import annotations
 
+import difflib
 import json
+import re
 from typing import Any
 
 from .policy import Patch, Rule
@@ -104,12 +106,94 @@ RESPONSE_INSTRUCTION = (
 )
 
 
+# A real contract can run to hundreds of fields, and sending all of it cost about
+# 2,750 tokens per case -- 195k for a 71-case benchmark run, which does not fit in
+# a free tier's daily allowance at all. Nearly all of that is fields the task has
+# no bearing on.
+RELATED_CUTOFF = 0.55
+MAX_RELATED = 12
+
+
+def _tokens(name: str) -> set[str]:
+    return {t for t in re.split(r"[^a-z0-9]+", name.lower()) if len(t) > 2}
+
+
+def _relevant_fields(signals: list[Signal], ctx: Any) -> tuple[dict[str, Any], list[str]]:
+    """Full detail for the fields that bear on this decision; names for the rest.
+
+    Keeping the remaining names in the prompt matters: a rename destination has to
+    be discoverable, and a model cannot propose a field it was never shown. What
+    it does not need is the type, description and constraints of 200 unrelated
+    ones.
+    """
+    fields: dict[str, Any] = ctx.model.spec.get("fields", {}) or {}
+    focus = {s.detail.get("field") for s in signals if s.detail.get("field")}
+    keep: set[str] = {name for name in focus if name in fields}
+    keep |= {name for name in fields if name in (ctx.canonical or {})}
+    keep |= {name for name, facts in fields.items() if facts.get("required")}
+
+    # Plausible destinations for anything that moved: a shared name token, or a
+    # close spelling. Both are how a rename is actually spotted.
+    focus_tokens = set().union(*(_tokens(f) for f in focus)) if focus else set()
+    related: list[str] = []
+    for name in fields:
+        if name in keep:
+            continue
+        if focus_tokens & _tokens(name):
+            related.append(name)
+    for name in focus:
+        related += difflib.get_close_matches(name, [n for n in fields if n not in keep],
+                                            n=3, cutoff=RELATED_CUTOFF)
+    for name in related[:MAX_RELATED]:
+        keep.add(name)
+
+    detailed = {name: fields[name] for name in sorted(keep) if name in fields}
+    remaining = sorted(n for n in fields if n not in detailed)
+    return detailed, remaining
+
+
+# Detail keys worth sending. Everything else a signal carries is either redundant
+# with the contract section (`spec`, `known_fields`) or prose that does not change
+# the decision.
+_SIGNAL_KEYS = ("field", "impact", "was", "now", "added", "removed", "allowed",
+                "got", "expected_type", "pattern", "max_length", "operation")
+_TEXT_KEYS = ("message", "note", "was_text", "now_text")
+_TEXT_LIMIT = 90
+
+
+def _signal_for_prompt(signal: Signal) -> dict[str, Any]:
+    out: dict[str, Any] = {"kind": signal.kind, "source": signal.source}
+    for key in _SIGNAL_KEYS:
+        if signal.detail.get(key) is not None:
+            out[key] = signal.detail[key]
+    for key in _TEXT_KEYS:
+        value = signal.detail.get(key)
+        if value:
+            out[key] = str(value)[:_TEXT_LIMIT]
+    # `spec` repeats the field's facts, which the contract section already carries
+    # in full, and `known_fields` repeats the whole field list once per signal.
+    required = (signal.detail.get("spec") or {}).get("required")
+    if required:
+        out["newly_required"] = True
+    return out
+
+
 def build_prompt(signals: list[Signal], ctx: Any) -> str:
     """The task, as data. Identical across providers so tiers stay comparable."""
+    detailed, remaining = _relevant_fields(signals, ctx)
+    contract: dict[str, Any] = {
+        "operation": ctx.model.spec.get("operation"),
+        "version": ctx.model.spec.get("version"),
+        "fields": detailed,
+    }
+    if remaining:
+        contract["other_accepted_field_names"] = remaining
+        contract["note"] = ("Fields bearing on these signals are described in "
+                            "full. The rest are listed by name only; ask for "
+                            "nothing outside both lists.")
     return json.dumps({
-        "signals": [{"kind": s.kind, "source": s.source, "detail": s.detail}
-                    for s in signals],
-        "observed_contract": ctx.model.spec,
+        "signals": [_signal_for_prompt(s) for s in signals],
+        "observed_contract": contract,
         "current_policy": json.loads(ctx.policy.to_json()),
         "canonical_record": ctx.canonical,
     }, indent=2, default=str)

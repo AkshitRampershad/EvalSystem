@@ -216,14 +216,20 @@ a solver that never adapts scores 100% on the second.
 ### Results
 
 ```
-solver                     adapt     ask  UNSAFE  safety
-noop                        0/27    0/44       0    100%
-escalate-always             0/27   44/44       0    100%
-drop-ungated                0/27    0/44      71      0%
-drop-gated                  0/27   44/44       0    100%
-agent-heuristic-ungated     3/27    0/44      60     15%
-agent-heuristic             7/27   36/44       2     97%
+solver                          adapt     ask  UNSAFE  safety
+noop                             0/27    0/44       0    100%
+escalate-always                  0/27   44/44       0    100%
+drop-ungated                     0/27    0/44      71      0%
+drop-gated                       0/27   44/44       0    100%
+agent-heuristic-ungated          3/27    0/44      60     15%
+agent-heuristic                  7/27   36/44       2     97%
+agent-groq:openai/gpt-oss-120b  14/27   38/44       5     93%   * partial
 ```
+
+`* partial` — that run fell back to heuristics on 32 of 71 cases after exhausting
+a free tier's daily token allowance, so the model answered roughly 39. The 14/27
+is therefore a **floor**, not a measurement. The prompt has since been cut by 56%
+(see below) so a full run fits; the number should be re-measured.
 
 Read `UNSAFE` first. It counts cases where a solver adopted a change that is
 invalid, silently dropped a capability, or guessed where the contract held no
@@ -241,10 +247,26 @@ unsafe ungated, 2 gated. Nothing else in this repository moves a number that far
 solvable cases, and it asks correctly less often than a solver that does nothing
 but ask (36/44 against 44/44). Its entire contribution over the trivial floor is
 7 adaptations — real, but a long way from a system that maintains an integration
-by itself. That gap is the argument for `--reasoner claude`, and **that number is
-not yet measured**: it needs API credentials this environment does not have. The
-benchmark exists to answer that question, and until it is run the honest claim is
-that the heuristic tier is close to the floor.
+by itself.
+
+**A model-backed reasoner roughly doubles adaptation, and costs safety.** On a
+partial run, `gpt-oss-120b` reached 14/27 while answering only about 39 of the 71
+cases, with gains concentrated exactly where the heuristic is blind: `rename` 5→10,
+`type_changed` 0→2, `length_tightened` 0→1. It also produced three more unsafe
+adoptions, all on `rename` — plausible destinations that validate and are wrong.
+That is the predictable cost of a more confident proposer, and it is a gate problem
+rather than a reasoner problem: a rename destination currently needs only to satisfy
+the schema, when it should have to clear a stronger bar. That is the next fix, and
+the benchmark is what will show whether it works.
+
+**The prompt had to shrink before it could be measured at all.** The first attempt
+at a full run died on a free tier's 200,000 tokens-per-day limit, because sending
+the whole contract cost about 2,750 tokens per case — 195,000 for one run, before
+the system prompt and output. Nearly all of it was fields and signal detail with no
+bearing on the decision. Sending full detail only for relevant fields, bare names
+for the rest, and dropping signal payloads that duplicate the contract cut it to
+87,000 (56% less), which fits. Two tests keep it there: one asserts a full run stays
+under budget, another that no trimming ever hides a field a correct answer needs.
 
 **Most real drift is not locally solvable.** 44 of 71 cases carry no evidence of
 where a capability went. Any pitch resting on an agent that fixes drift
