@@ -6,39 +6,44 @@
 <title>PatchProof</title>
 <meta name="description" content="When a service you depend on changes, the obvious fix passes every check and silently stops doing the job. An agent that repairs integrations, a gate that refuses fixes which only look correct, and a benchmark on 71 real breaking changes.">
 <style>
-/* Design tokens taken from the author's existing site, not a new palette. */
+/* Palette: beige #EDE8D0, olive #6E632E, lavender #DBD1ED, dusty blue #ABBEED.
+   Each theme gets its own steps rather than a flip: olive carries the accent on
+   the warm light ground, dusty blue carries it on the dark one, because olive
+   only reaches 3.04:1 against the dark surface. */
 :root{
-  --bg:#eef2f9; --card:#ffffff; --surface-alt:rgba(15,23,42,.04);
-  --text:#161b29; --text-2:#4a5268; --text-3:#6b7280;
-  --accent:#2f8fff; --accent-dark:#0056b3;
-  --border:rgba(15,23,42,.10); --shadow:0 10px 25px rgba(15,23,42,.08);
-  /* Reserved status palette. Fixed, mode-invariant, never reused for a series.
-     On this light surface `warning` is sub-3:1 by design; every segment carries a
-     visible number and a table view, which is the required mitigation. */
+  --bg:#EDE8D0; --card:#FAF8F0; --tint:#DBD1ED; --surface-alt:rgba(110,99,46,.10);
+  --text:#2E2A18; --text-2:#554D2F; --text-3:#6E632E;
+  --accent:#6E632E; --accent-2:#5A6EA8; --btn-fg:#FAF8F0;
+  --border:rgba(46,42,24,.16); --shadow:0 10px 26px rgba(46,42,24,.10);
+  /* Reserved status palette. Fixed, mode-invariant, never themed: these four
+     encode good / warning / critical in the results, and the page palette's
+     pastels cannot be told apart at that job. On this light surface `warning` is
+     sub-3:1 by design; every segment carries a visible number and a table view,
+     which is the required mitigation. */
   --good:#0ca30c; --warn:#fab219; --crit:#d03b3b; --none:#8a8f99;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
   --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif;
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
-    --bg:#0b0c10; --card:#141720; --surface-alt:rgba(245,245,245,.06);
-    --text:whitesmoke; --text-2:#c3c8d1; --text-3:#8b93a3;
-    --border:rgba(245,245,245,.12); --shadow:0 10px 25px rgba(0,0,0,.35);
+    --bg:#16150F; --card:#211F16; --tint:#262234; --surface-alt:rgba(237,232,208,.07);
+    --text:#EDE8D0; --text-2:#C3BC9C; --text-3:#9A9478;
+    --accent:#ABBEED; --accent-2:#DBD1ED; --btn-fg:#16150F;
+    --border:rgba(237,232,208,.15); --shadow:0 10px 26px rgba(0,0,0,.45);
   }
 }
 :root[data-theme="dark"]{
-  --bg:#0b0c10; --card:#141720; --surface-alt:rgba(245,245,245,.06);
-  --text:whitesmoke; --text-2:#c3c8d1; --text-3:#8b93a3;
-  --border:rgba(245,245,245,.12); --shadow:0 10px 25px rgba(0,0,0,.35);
+  --bg:#16150F; --card:#211F16; --tint:#262234; --surface-alt:rgba(237,232,208,.07);
+  --text:#EDE8D0; --text-2:#C3BC9C; --text-3:#9A9478;
+  --accent:#ABBEED; --accent-2:#DBD1ED; --btn-fg:#16150F;
+  --border:rgba(237,232,208,.15); --shadow:0 10px 26px rgba(0,0,0,.45);
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
   line-height:1.65;font-size:17px;overflow-wrap:break-word}
 .wrap{max-width:780px;margin:0 auto;padding:0 16px}
-a{color:var(--accent-dark)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) a{color:var(--accent)}}
-:root[data-theme="dark"] a{color:var(--accent)}
+a{color:var(--accent)}
 h1,h2,h3{line-height:1.25;letter-spacing:-.01em}
 h1{font-size:clamp(1.9rem,5.2vw,2.7rem);margin:0 0 .6rem}
 h2{font-size:clamp(1.25rem,3.4vw,1.6rem);margin:2.6rem 0 .5rem}
@@ -52,7 +57,7 @@ header{padding:3.2rem 0 .5rem}
 .hook{font-size:clamp(1.3rem,3.6vw,1.75rem);font-weight:650;margin:0 0 1rem}
 
 /* Hero figure: the one number the page leads with. Not a one-bar chart. */
-.hero{background:var(--card);border:1px solid var(--border);border-radius:14px;
+.hero{background:var(--tint);border:1px solid var(--border);border-radius:14px;
   box-shadow:var(--shadow);padding:1.4rem 1.3rem;margin:1.8rem 0}
 .hero-label{font-size:.9rem;color:var(--text-2);margin:0 0 .9rem}
 .hero-pair{display:flex;align-items:baseline;gap:.9rem;flex-wrap:wrap}
@@ -72,8 +77,8 @@ header{padding:3.2rem 0 .5rem}
   text-transform:uppercase;color:var(--text-3);font-family:var(--mono)}
 .card ul{margin:0;padding-left:1.1rem;font-size:.94rem;color:var(--text-2)}
 .card li{margin:.35rem 0}
-.card.proven{border-left:3px solid var(--good)}
-.card.unproven{border-left:3px solid var(--warn)}
+.card.proven{border-left:3px solid var(--accent)}
+.card.unproven{border-left:3px solid var(--accent-2)}
 
 /* Meters: one ratio against its own limit, single hue, same-ramp track. */
 table.results{width:100%;border-collapse:collapse;margin:1.1rem 0;font-size:.9rem}
@@ -162,19 +167,18 @@ p code,li code{background:var(--surface-alt);padding:.1rem .32rem;border-radius:
   .term::after{position:fixed;left:16px;right:16px;bottom:16px;top:auto;
     width:auto;font-size:.85rem;padding:.75rem .9rem}
 }
-.term:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
 
 .callout{margin:1.1rem 0;padding:.9rem 1.05rem;border-radius:10px;
   background:var(--surface-alt);border:1px solid var(--border)}
 .callout strong{color:var(--text)}
 .cta{display:flex;flex-wrap:wrap;gap:.7rem;margin:1.6rem 0 0}
 .btn{display:inline-block;padding:.62rem 1.05rem;border-radius:9px;
-  background:var(--accent);color:#fff;text-decoration:none;font-weight:600;
-  font-size:.92rem}
-.btn.ghost{background:transparent;color:var(--accent-dark);
-  border:1px solid var(--border)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn.ghost{color:var(--accent)}}
-:root[data-theme="dark"] .btn.ghost{color:var(--accent)}
+  background:var(--accent);color:var(--btn-fg);text-decoration:none;
+  font-weight:600;font-size:.92rem;border:1px solid transparent}
+.btn.ghost{background:transparent;color:var(--accent);border-color:var(--border)}
+.btn:focus-visible,.term:focus-visible{outline:2px solid var(--accent);
+  outline-offset:2px}
 footer{margin:3.5rem 0 2.5rem;padding-top:1.2rem;border-top:1px solid var(--border);
   font-size:.86rem;color:var(--text-3)}
 </style>
