@@ -1,64 +1,186 @@
-# Self-learning integration agent
+# EvalSystem
 
-A working prototype of an agent that detects changes in its environment, works
-out how to handle them, verifies the fix against the environment itself, and
-adapts — with no human evaluating it, correcting it, or telling it what changed.
+**When a service you depend on changes, the obvious fix passes every check and
+silently stops doing the job.**
 
-It runs offline with no dependencies and no API key:
+This is three things: an agent that repairs a broken integration by itself, a
+gate that refuses fixes which only *look* correct, and a benchmark built from 71
+real breaking changes in Stripe's published history that says how well it
+actually works.
+
+The short version of the result: the gate matters more than the agent. The
+obvious repair — stop sending whatever broke — produces a valid request and
+quietly loses money in **71 out of 71** real cases. Behind the gate, **zero** get
+through.
 
 ```bash
-python3 run_demo.py                  # full narrated run
-python3 run_demo.py --quiet          # metrics only
-python3 -m unittest discover -s tests -t .
+git clone https://github.com/AkshitRampershad/EvalSystem && cd EvalSystem
+python3 run_demo.py                                # watch it adapt, no API key needed
+python3 -m bench.run                               # score it against real drift
+python3 -m unittest discover -s tests -t .         # 144 tests
 ```
 
-## What the demo shows
+| | |
+|---|---|
+| **Proven** | Drift detection against Stripe's real published contracts, across 2,506 versions. The gate eliminating every unsafe fix, measured. A benchmark that scores any solver on 71 real breaking changes. |
+| **Not proven** | The end-to-end adaptation loop runs against a simulator, not a live provider. Verification against a real provider sandbox is built but needs credentials and has never been run. The best model score is from a partial run. |
 
-A partner API drifts five times over thirty ticks while the agent keeps
-submitting real invoices against it.
+---
+
+## The problem
+
+You have software that talks to somebody else's API — a payment processor, a
+CRM, a data feed. One day they rename a field, tighten a validation rule, or
+change what a number means. Your integration breaks.
+
+Someone has to notice, work out what changed, and fix it. That is unglamorous,
+interrupt-driven work, and it never stops, because the other end never stops
+changing.
+
+The bad case isn't the one that breaks loudly. It's the one where your request is
+still perfectly valid and quietly does the wrong thing — the field you were
+sending is simply gone, so nothing errors, nothing alerts, and nobody finds out
+until the numbers don't add up.
+
+## How this is handled today
+
+Mostly well enough, and that is worth being honest about. Contract tests catch
+some changes. Monitoring catches more. A provider with good discipline announces
+breaking changes in advance, and Stripe — measured here — ships almost none.
+
+What the status quo does not solve is the silent class. Every existing safeguard
+answers "did the request fail?" When the answer is no and the behaviour is wrong
+anyway, nothing in the usual toolkit fires.
+
+## What this does differently
+
+The agent watches the contract, notices a change, and forms a hypothesis about
+the new correct behaviour. That part is unremarkable and several tools do it.
+
+The part that matters is what happens next: **a hypothesis is not allowed to
+become behaviour until something outside the agent confirms it.** Three tiers,
+with deliberately different authority:
+
+1. **The provider's own published contract** accepts the request. Free, offline,
+   runs on every candidate — and proves only that the provider will not reject
+   it. It says nothing about meaning.
+2. **The provider's sandbox** accepted it for real, catching undocumented rules
+   the contract never expressed.
+3. **What actually happened** downstream, days later. Not available in advance at
+   all. Every claim about semantic correctness belongs here and nowhere else.
+
+Between tiers one and two sits the check the whole project exists for. When the
+agent cannot work out where a value went, the easiest fix that passes every
+check is to **stop sending it**. Valid request, silent loss. So the gate compares
+what the request used to accomplish against what it accomplishes now, and refuses.
+
+Then it does the thing that makes autonomy tolerable: **it asks one specific
+question instead of guessing.**
+
+> `'coupon' no longer appears in the request and its value is not carried by any
+> other field. The published contract does not say where it moved. Was this
+> capability removed, or does it now go somewhere else in POST /v1/customers?`
+
+Guessing is treated as a failure, not a partial success. A value written into an
+unrelated field validates perfectly and is worse than no change at all, because
+nothing downstream will ever complain.
+
+## What's real and what isn't
+
+The section most worth checking, so it is stated plainly rather than implied.
+
+**Real.** The drift sensors read OpenAPI contracts a provider actually published.
+Stripe keeps 2,506 tagged versions in public git, so the changes measured here
+are ones that really happened to real callers. Over three years: 589 operations,
+~6,500 contract fields, 1,716 field-level changes.
+
+**Real.** The benchmark's 71 cases are mined from that history and labelled
+without human annotation. Two properties are enforced when mining and re-checked
+by the test suite: each request must be valid before the change and broken after
+it. A benchmark whose data rots keeps printing numbers while measuring nothing.
+
+**Simulated.** The full sense → hypothesise → verify → act → recover loop runs
+against a partner API written for the purpose. That simulator is what lets the
+delayed-signal path be exercised end to end; a real provider's ledger does not
+disagree with you on demand.
+
+**Built, never run.** Tier 2 — verification against a live provider sandbox —
+needs test-mode credentials. The HTTP path is covered by tests with an injected
+transport. It has not been pointed at Stripe.
+
+**Partial.** The best model-backed score below comes from a run that exhausted a
+free tier's daily token allowance and fell back on 32 of 71 cases. It is labelled
+as a floor, not a measurement.
+
+## What the numbers say
+
+Every row measured on the same 71 real cases. Two rates, reported separately
+because they are trivially traded against each other: `adapt` is being correct
+where the contract holds the answer, `ask` is correctly asking where it does not.
 
 ```
-drift                                  lands fixed   lag       detected by  bad writes
-renames customer_email -> contact_email   t5    t5    0t   changelog+spec*           0
-makes 'currency' a required field         t9    t9    0t    changelog+spec           0
-changes the 'terms' value set            t13   t13    0t    changelog+spec           0
-requires RFC3339 timestamps              t16   t16    0t    changelog+spec           0
-switches amount to cents, SILENTLY       t19   t22    3t            ledger           6
-
-  tasks completed                 59
-  tasks failed                     0
-  policy versions adopted          5
-  production writes rolled back    6
-  HUMAN INTERVENTIONS              0
+solver                          adapt     ask  UNSAFE  safety
+noop                             0/27    0/44       0    100%
+escalate-always                  0/27   44/44       0    100%
+drop-ungated                     0/27    0/44      71      0%
+drop-gated                       0/27   44/44       0    100%
+agent-heuristic                  7/27   36/44       2     97%
+agent-groq:openai/gpt-oss-120b  14/27   38/44       5     93%   * partial
 ```
 
-The first four drifts cost nothing: they are visible in the published contract,
-so the agent sees them before a task can fail. The `*` on the first one means
-the fix was verified against the partner's staged version a tick *before* the
-change went live, and applied the moment it landed.
+**Read `UNSAFE` first.** It counts fixes that were adopted and are invalid,
+silently dropped a capability, or guessed where no answer existed. Every other
+outcome leaves a human able to reason about the situation. An unsafe one looks
+like success.
 
-The fifth drift is the one that matters. The partner starts reading `amount` as
-cents instead of dollars and **says nothing** — no version bump, no changelog
-entry, no schema change. Every submission returns `200 OK`. A spec diff is
-empty. Nothing an agent can introspect looks wrong, and for three ticks six
-invoices are silently booked at 1/100th of their value.
+**The gate is the most valuable component, by a wide margin.** `drop-ungated` is
+the obvious fix with no verification: unsafe on 71 of 71. The identical solver
+behind the gate: zero. Nothing else here moves a number that far.
 
-Then the partner's ledger disagrees. The agent:
+**A model roughly doubles adaptation, and costs safety.** 7/27 → 14/27, with
+gains exactly where pattern-matching is blind. It also produced three more unsafe
+adoptions, all on renames — plausible destinations that validate and are wrong.
+That is a gate problem, not a model problem, and it is the next thing to fix.
 
-1. attributes the finding back to the decision that caused it, three ticks late;
-2. rolls the bad write back;
-3. converts the finding into a **permanent local assertion** — from now on any
-   candidate policy that renders that record differently is rejected in
-   microseconds instead of on the next three-tick round trip;
-4. derives the correction from the ratio the ledger reported;
-5. verifies it in the sandbox against all 61 accumulated regression cases;
-6. adopts it, and re-submits the repaired records.
+**Most real drift is not locally fixable at all.** 44 of the 71 cases carry no
+evidence anywhere of where the capability went. Any pitch resting on
+fully-unattended repair has to account for that: the realistic ceiling on this
+provider is about 38%, and the rest is an agent asking one good question instead
+of a human reading a changelog.
 
-Then it recognises the five *later* findings still in flight as stale writes
-from the old policy rather than fresh evidence — so it repairs them without
-touching the policy again. An agent that skips that check oscillates.
+**And the least flattering finding came from auditing the benchmark, not the
+agent.** An earlier version of the scorer reported 42% solved. Reading the
+per-case output showed what it rewarded: `rename coupon -> phone`,
+`rename promotion_code -> address.postal_code`, and `rename coupon -> {customer}`
+— which writes a coupon code into a path parameter and addresses an entirely
+different resource. All three validated. All three preserved the value. All three
+scored as successes. A benchmark that flatters the system it measures is worse
+than none, because it retires the question.
 
-## Why it is built this way
+## Glossary
+
+Terms as this codebase uses them, not in general.
+
+- **Drift** — a change to the contract of a service you depend on, made without
+  coordinating with you.
+- **Contract** — the machine-readable description of what a request may contain:
+  fields, types, required-ness, allowed values. Here, extracted from OpenAPI.
+- **Policy** — the agent's learned behaviour, stored as an ordered list of named
+  transforms rather than model weights, so every rule is readable, revertible and
+  traceable to the signal that justified it.
+- **The gate** — the tiered verification that a proposed fix must survive before
+  it becomes behaviour.
+- **Capability loss** — the request still validates but has stopped doing
+  something it used to do. The failure this project is organised around.
+- **Escalation** — the agent declining to guess, with one specific question.
+  Scored as the correct answer wherever the contract holds no answer.
+- **Ledger signal** — ground truth that arrives long after the decision, from the
+  provider's own records. The only tier that can catch a silent error.
+
+---
+
+<details>
+<summary><b>Design decisions, and why each one is that way</b></summary>
 
 Five decisions carry the whole design.
 
@@ -94,7 +216,10 @@ operator sets the rate rather than discovering it. In the run above both
 clusters are demoted at t24 by the silent drift's rollbacks and re-graduate at
 t27.
 
-## Sensors against a real API
+</details>
+
+<details>
+<summary><b>Sensors against a real API — what real drift measures like</b></summary>
 
 `sell/real/` points the same detection layer at contracts a real provider
 actually shipped, so the drift is whatever really happened between two releases
@@ -178,7 +303,10 @@ UNVERIFIED, because nothing has tested them and nothing should adopt them. That
 boundary is deliberate — the gate is what makes the loop safe, so it is better
 to be visibly absent than quietly skipped.
 
-## The benchmark
+</details>
+
+<details>
+<summary><b>The benchmark — how cases are mined, labelled and scored</b></summary>
 
 `bench/` is what makes the claims here falsifiable. It mines drift events out of
 a provider's real version history, labels them without human annotation, and
@@ -294,31 +422,10 @@ Implement `solve(case, old_contract, new_contract) -> Attempt` and register it i
 not beat `escalate-always` on the `adapt` column has contributed nothing, however
 good its overall percentage looks.
 
-## Layout
+</details>
 
-| file | role |
-|---|---|
-| `sell/environment.py` | the simulated partner: drifts, sandbox, staging, ledger |
-| `sell/sensors.py` | detection, ordered by how early each signal fires |
-| `sell/store.py` | environment model, trajectory log, growing regression suite |
-| `sell/reasoner.py` | hypothesis generation — heuristic and Claude-backed |
-| `sell/experiment.py` | the two gates, and the reversibility classifier |
-| `sell/policy.py` | versioned transform pipeline with rollback |
-| `sell/governor.py` | per-cluster autonomy ladder and error budget |
-| `sell/agent.py` | the loop |
-| `sell/real/openapi.py` | real OpenAPI 3 -> the same contract shape the sensors read |
-| `sell/real/diff.py` | structural diff with breaking / additive / cosmetic verdicts |
-| `sell/real/sources.py` | version discovery, fetch and cache for real specs |
-| `sell/real/scan.py` | CLI: measure real drift between two shipped versions |
-| `sell/real/validator.py` | request validation against a provider's own contract |
-| `sell/real/gate.py` | the three-tier verification gate and the capability check |
-| `bench/mine.py` | mine labelled drift cases from real version history |
-| `bench/solvers.py` | the agent under test, plus baselines built to fail |
-| `bench/score.py` | four outcomes; only one of them is a real failure |
-| `bench/run.py` | CLI: run the ladder and print the table |
-| `data/stripe-drift-v1.json.gz` | 71 committed cases, so runs are comparable |
-
-## Model tiers for hypothesis generation
+<details>
+<summary><b>Model tiers, credentials and token budget</b></summary>
 
 The reasoner is the one pluggable component, because the gate does not care who
 produced a hypothesis — only whether it survives verification. Every tier shares
@@ -364,8 +471,6 @@ environment this was developed in, so **the Groq row has not been measured**; th
 code path is covered by tests with an injected transport, and the number needs a
 run somewhere the endpoint is reachable.
 
-## Using Claude for hypothesis generation
-
 The default reasoner pattern-matches failure shapes that were anticipated in
 advance, which is exactly its limitation. `--reasoner claude` hands hypothesis
 generation to the model, which handles drift the heuristics were never taught —
@@ -380,7 +485,36 @@ python3 run_demo.py --reasoner claude
 Its proposals go through the identical gates; nothing is trusted because a model
 said it. Without credentials the agent falls back to heuristics and says so.
 
-## What this does not do
+</details>
+
+<details>
+<summary><b>Code layout</b></summary>
+
+| file | role |
+|---|---|
+| `sell/environment.py` | the simulated partner: drifts, sandbox, staging, ledger |
+| `sell/sensors.py` | detection, ordered by how early each signal fires |
+| `sell/store.py` | environment model, trajectory log, growing regression suite |
+| `sell/reasoner.py` | hypothesis generation — heuristic and Claude-backed |
+| `sell/experiment.py` | the two gates, and the reversibility classifier |
+| `sell/policy.py` | versioned transform pipeline with rollback |
+| `sell/governor.py` | per-cluster autonomy ladder and error budget |
+| `sell/agent.py` | the loop |
+| `sell/real/openapi.py` | real OpenAPI 3 -> the same contract shape the sensors read |
+| `sell/real/diff.py` | structural diff with breaking / additive / cosmetic verdicts |
+| `sell/real/sources.py` | version discovery, fetch and cache for real specs |
+| `sell/real/scan.py` | CLI: measure real drift between two shipped versions |
+| `sell/real/validator.py` | request validation against a provider's own contract |
+| `sell/real/gate.py` | the three-tier verification gate and the capability check |
+| `bench/mine.py` | mine labelled drift cases from real version history |
+| `bench/solvers.py` | the agent under test, plus baselines built to fail |
+| `bench/score.py` | four outcomes; only one of them is a real failure |
+| `bench/run.py` | CLI: run the ladder and print the table |
+| `data/stripe-drift-v1.json.gz` | 71 committed cases, so runs are comparable |
+
+</details>
+
+## Limits
 
 - **It cannot learn a rule that exists only in someone's head.** Nothing here
   infers a new business policy that produces no observable signal. That is an
