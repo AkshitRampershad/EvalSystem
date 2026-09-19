@@ -13,7 +13,7 @@ quietly loses money in **71 out of 71** real cases. Behind the gate, **zero** ge
 through.
 
 ```bash
-git clone https://github.com/AkshitRampershad/EvalSystem && cd EvalSystem
+git clone https://github.com/AkshitRampershad/PatchProof && cd PatchProof
 python3 run_demo.py                                # watch it adapt, no API key needed
 python3 -m bench.run                               # score it against real drift
 python3 -m unittest discover -s tests -t .         # 144 tests
