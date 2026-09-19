@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EvalSystem</title>
+<meta name="description" content="When a service you depend on changes, the obvious fix passes every check and silently stops doing the job. An agent that repairs integrations, a gate that refuses fixes which only look correct, and a benchmark on 71 real breaking changes.">
+<style>
+/* Design tokens taken from the author's existing site, not a new palette. */
+:root{
+  --bg:#eef2f9; --card:#ffffff; --surface-alt:rgba(15,23,42,.04);
+  --text:#161b29; --text-2:#4a5268; --text-3:#6b7280;
+  --accent:#2f8fff; --accent-dark:#0056b3;
+  --border:rgba(15,23,42,.10); --shadow:0 10px 25px rgba(15,23,42,.08);
+  /* Reserved status palette. Fixed, mode-invariant, never reused for a series.
+     On this light surface `warning` is sub-3:1 by design; every segment carries a
+     visible number and a table view, which is the required mitigation. */
+  --good:#0ca30c; --warn:#fab219; --crit:#d03b3b; --none:#8a8f99;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b0c10; --card:#141720; --surface-alt:rgba(245,245,245,.06);
+    --text:whitesmoke; --text-2:#c3c8d1; --text-3:#8b93a3;
+    --border:rgba(245,245,245,.12); --shadow:0 10px 25px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b0c10; --card:#141720; --surface-alt:rgba(245,245,245,.06);
+  --text:whitesmoke; --text-2:#c3c8d1; --text-3:#8b93a3;
+  --border:rgba(245,245,245,.12); --shadow:0 10px 25px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+  line-height:1.65;font-size:17px;overflow-wrap:break-word}
+.wrap{max-width:780px;margin:0 auto;padding:0 16px}
+a{color:var(--accent-dark)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) a{color:var(--accent)}}
+:root[data-theme="dark"] a{color:var(--accent)}
+h1,h2,h3{line-height:1.25;letter-spacing:-.01em}
+h1{font-size:clamp(1.9rem,5.2vw,2.7rem);margin:0 0 .6rem}
+h2{font-size:clamp(1.25rem,3.4vw,1.6rem);margin:2.6rem 0 .5rem}
+h3{font-size:1.05rem;margin:1.6rem 0 .4rem}
+p{margin:.7rem 0}
+.lede{font-size:clamp(1.05rem,2.6vw,1.2rem);color:var(--text-2)}
+
+header{padding:3.2rem 0 .5rem}
+.kicker{font-family:var(--mono);font-size:.78rem;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--text-3);margin:0 0 1rem}
+.hook{font-size:clamp(1.3rem,3.6vw,1.75rem);font-weight:650;margin:0 0 1rem}
+
+/* Hero figure: the one number the page leads with. Not a one-bar chart. */
+.hero{background:var(--card);border:1px solid var(--border);border-radius:14px;
+  box-shadow:var(--shadow);padding:1.4rem 1.3rem;margin:1.8rem 0}
+.hero-label{font-size:.9rem;color:var(--text-2);margin:0 0 .9rem}
+.hero-pair{display:flex;align-items:baseline;gap:.9rem;flex-wrap:wrap}
+.hero-num{font-size:clamp(2.6rem,9vw,3.6rem);font-weight:700;line-height:1;
+  font-variant-numeric:tabular-nums}
+.hero-num.bad{color:var(--crit)}
+.hero-num.good{color:var(--good)}
+.hero-arrow{font-size:1.5rem;color:var(--text-3)}
+.hero-cap{font-size:.86rem;color:var(--text-2);margin:.9rem 0 0}
+.hero-sub{font-family:var(--mono);font-size:.78rem;color:var(--text-3)}
+
+.grid2{display:grid;gap:14px;grid-template-columns:1fr 1fr;margin:1.5rem 0}
+@media (max-width:560px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:1rem 1.05rem}
+.card h3{margin:0 0 .45rem;font-size:.82rem;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--text-3);font-family:var(--mono)}
+.card ul{margin:0;padding-left:1.1rem;font-size:.94rem;color:var(--text-2)}
+.card li{margin:.35rem 0}
+.card.proven{border-left:3px solid var(--good)}
+.card.unproven{border-left:3px solid var(--warn)}
+
+/* Meters: one ratio against its own limit, single hue, same-ramp track. */
+table.results{width:100%;border-collapse:collapse;margin:1.1rem 0;font-size:.9rem}
+table.results th{text-align:left;font-weight:600;font-size:.78rem;
+  text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);
+  padding:.5rem .5rem .5rem 0;border-bottom:1px solid var(--border)}
+table.results td{padding:.55rem .5rem .55rem 0;border-bottom:1px solid var(--border);
+  vertical-align:middle}
+table.results tr.hi td{background:var(--surface-alt)}
+.solver{font-family:var(--mono);font-size:.82rem}
+.meter{display:flex;align-items:center;gap:.5rem;min-width:118px}
+.track{flex:1;height:7px;border-radius:4px;background:var(--surface-alt);
+  overflow:hidden;min-width:44px}
+.fill{height:100%;border-radius:4px;background:var(--accent)}
+.mval{font-family:var(--mono);font-size:.78rem;color:var(--text-2);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.unsafe-n{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:650}
+.unsafe-n[data-zero="true"]{color:var(--good)}
+.unsafe-n[data-zero="false"]{color:var(--crit)}
+.note{font-size:.84rem;color:var(--text-3);margin:.4rem 0 0}
+.scroller{overflow-x:auto;-webkit-overflow-scrolling:touch}
+@media (max-width:620px){
+  /* The bar is reinforcement; the fraction is the data. Dropping the track keeps
+     the table inside the viewport rather than making the whole page scroll. */
+  .track{display:none}
+  .meter{min-width:0;gap:0}
+  table.results{font-size:.84rem}
+  table.results th,table.results td{padding-right:.35rem}
+  .solver{font-size:.76rem}
+}
+
+/* Stacked composition, horizontal for long category names. Every segment is
+   directly labelled; colour never carries meaning alone. */
+.legend{display:flex;flex-wrap:wrap;gap:.8rem;margin:.9rem 0 .6rem;font-size:.82rem}
+.legend span{display:inline-flex;align-items:center;gap:.35rem;color:var(--text-2)}
+.swatch{width:11px;height:11px;border-radius:3px;flex:none}
+.bars{margin:.6rem 0}
+.bar-row{display:grid;grid-template-columns:158px 1fr;gap:10px;align-items:center;
+  margin:.42rem 0}
+@media (max-width:520px){.bar-row{grid-template-columns:1fr;gap:3px}}
+.bar-name{font-family:var(--mono);font-size:.78rem;color:var(--text-2)}
+.bar{display:flex;height:22px;border-radius:5px;overflow:hidden;gap:2px;
+  background:var(--surface-alt)}
+.seg{display:flex;align-items:center;justify-content:center;font-size:.72rem;
+  font-weight:650;color:#fff;font-variant-numeric:tabular-nums;min-width:0;
+  overflow:hidden}
+.seg[data-role="solved"]{background:var(--good)}
+.seg[data-role="escalated"]{background:var(--warn);color:#2a1e00}
+.seg[data-role="unsolved"]{background:var(--none)}
+.seg[data-role="unsafe"]{background:var(--crit)}
+
+details{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:.85rem 1.05rem;margin:1rem 0}
+details summary{cursor:pointer;font-weight:600;font-size:.95rem}
+details[open] summary{margin-bottom:.6rem}
+details table{width:100%;border-collapse:collapse;font-size:.85rem}
+details th,details td{text-align:left;padding:.35rem .5rem .35rem 0;
+  border-bottom:1px solid var(--border)}
+
+blockquote{margin:1.1rem 0;padding:.85rem 1rem;background:var(--surface-alt);
+  border-left:3px solid var(--accent);border-radius:0 8px 8px 0;
+  font-family:var(--mono);font-size:.85rem;color:var(--text-2)}
+pre{background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:.9rem 1rem;overflow-x:auto;font-family:var(--mono);font-size:.82rem;
+  line-height:1.5}
+code{font-family:var(--mono);font-size:.88em}
+p code,li code{background:var(--surface-alt);padding:.1rem .32rem;border-radius:4px}
+
+/* Jargon: one-line definitions as this codebase uses the term. Works on hover
+   and on tap, since a tooltip nobody can reach on a phone is not a definition. */
+.term{font:inherit;color:inherit;background:none;border:0;padding:0;
+  border-bottom:1px dashed var(--accent);cursor:help;position:relative}
+.term::after{content:attr(data-def);position:absolute;left:0;top:calc(100% + 7px);
+  width:min(330px,86vw);background:var(--text);color:var(--bg);
+  font-size:.8rem;font-weight:400;line-height:1.45;padding:.55rem .7rem;
+  border-radius:8px;box-shadow:var(--shadow);z-index:20;text-align:left;
+  pointer-events:none;
+  /* display:none rather than visibility:hidden -- a hidden absolute box still
+     occupies layout, and a tooltip near the right margin was stretching the page
+     to 569px at 390px wide. */
+  display:none}
+.term:hover::after,.term:focus-visible::after{display:block}
+@media (max-width:620px){
+  /* On a phone a left-anchored tooltip clips at the viewport edge. Show it as a
+     card pinned to the bottom instead, where it always fits. */
+  .term::after{position:fixed;left:16px;right:16px;bottom:16px;top:auto;
+    width:auto;font-size:.85rem;padding:.75rem .9rem}
+}
+.term:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.callout{margin:1.1rem 0;padding:.9rem 1.05rem;border-radius:10px;
+  background:var(--surface-alt);border:1px solid var(--border)}
+.callout strong{color:var(--text)}
+.cta{display:flex;flex-wrap:wrap;gap:.7rem;margin:1.6rem 0 0}
+.btn{display:inline-block;padding:.62rem 1.05rem;border-radius:9px;
+  background:var(--accent);color:#fff;text-decoration:none;font-weight:600;
+  font-size:.92rem}
+.btn.ghost{background:transparent;color:var(--accent-dark);
+  border:1px solid var(--border)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn.ghost{color:var(--accent)}}
+:root[data-theme="dark"] .btn.ghost{color:var(--accent)}
+footer{margin:3.5rem 0 2.5rem;padding-top:1.2rem;border-top:1px solid var(--border);
+  font-size:.86rem;color:var(--text-3)}
+</style>
+</head>
+<body>
+<main class="wrap">
+
+<header>
+  <p class="kicker">EvalSystem &middot; open source</p>
+  <h1>The obvious fix passes every check and silently stops working.</h1>
+  <p class="lede">When a service you depend on changes its API, the repair that
+  looks correct is usually the one that quietly loses money. This is an agent that
+  fixes broken integrations by itself, a gate that refuses fixes which only
+  <em>look</em> right, and a benchmark built from 71 real breaking changes that
+  says how well it actually works.</p>
+
+  <div class="hero">
+    <p class="hero-label">The obvious repair &mdash; stop sending whatever broke &mdash;
+      applied to 71 real breaking changes from Stripe's history:</p>
+    <div class="hero-pair">
+      <span class="hero-num bad">71</span>
+      <span class="hero-sub">of 71 unsafe</span>
+      <span class="hero-arrow">&rarr;</span>
+      <span class="hero-num good">0</span>
+      <span class="hero-sub">behind the gate</span>
+    </div>
+    <p class="hero-cap">Same fix, same cases. The only difference is whether
+      something checked it first. That is the finding: the gate matters more than
+      the agent.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="card proven">
+      <h3>Measured</h3>
+      <ul>
+        <li>Drift detection against Stripe's real published contracts, across 2,506 versions</li>
+        <li>The gate removing every unsafe fix</li>
+        <li>71 real breaking changes, scored reproducibly</li>
+        <li>144 tests</li>
+      </ul>
+    </div>
+    <div class="card unproven">
+      <h3>Not yet proven</h3>
+      <ul>
+        <li>The end-to-end loop runs against a simulator, not a live provider</li>
+        <li>Verification against a real provider sandbox is built but never run &mdash; it needs credentials</li>
+        <li>The best model score comes from a partial run</li>
+      </ul>
+    </div>
+  </div>
+</header>
+
+<h2>The problem</h2>
+<p>You have software that talks to somebody else's API &mdash; a payment
+processor, a CRM, a data feed. One day they rename a field, tighten a rule, or
+change what a number means. Your integration breaks.</p>
+<p>Someone has to notice, work out what changed, and fix it. That work is
+interrupt-driven and never finishes, because the other end never stops changing.</p>
+<p>The bad case is not the one that breaks loudly. It is the one where your
+request is still perfectly valid and quietly does the wrong thing &mdash; the
+field you were sending is simply gone, so nothing errors, nothing alerts, and
+nobody finds out until the numbers do not add up.</p>
+
+<h2>How this is handled today</h2>
+<p>Mostly well enough, which is worth saying plainly. Contract tests catch some
+changes. Monitoring catches more. A disciplined provider announces breaking
+changes in advance &mdash; and Stripe, measured here, ships very few.</p>
+<p>What none of it solves is the silent class. Every existing safeguard answers
+one question: <em>did the request fail?</em> When the answer is no and the
+behaviour is wrong anyway, nothing fires.</p>
+
+<h2>What this does differently</h2>
+<p>The agent watches the
+<button class="term" data-def="The machine-readable description of what a request may contain: fields, types, whether each is required, allowed values. Here it is extracted from the provider's published OpenAPI document.">contract</button>,
+notices a change, and forms a hypothesis about the new correct behaviour. That
+part is unremarkable and several tools do it.</p>
+<p>What matters is what happens next: <strong>a hypothesis is not allowed to
+become behaviour until something outside the agent confirms it.</strong> Three
+tiers, with deliberately different authority.</p>
+<ol>
+  <li><strong>The provider's own contract accepts it.</strong> Free, offline, runs
+  on every candidate. Proves only that the provider will not reject it &mdash; it
+  says nothing about meaning.</li>
+  <li><strong>The provider's sandbox accepted it for real</strong>, catching
+  undocumented rules the contract never expressed.</li>
+  <li><strong>What actually happened</strong> downstream, days later. Not
+  available in advance at all. Every claim about semantic correctness belongs
+  here and nowhere else.</li>
+</ol>
+<p>Between tiers one and two sits the check the whole project exists for. When the
+agent cannot work out where a value went, the easiest fix that passes everything
+is to <em>stop sending it</em>. Valid request,
+<button class="term" data-def="The request still validates, but has stopped doing something it used to do. The failure this project is organised around, because no schema check and no error response can see it.">capability loss</button>.
+So the gate compares what the request used to accomplish against what it
+accomplishes now, and refuses.</p>
+<p>Then it does the thing that makes autonomy tolerable: it asks one specific
+question instead of guessing.</p>
+<blockquote>'coupon' no longer appears in the request and its value is not carried
+by any other field. The published contract does not say where it moved. Was this
+capability removed, or does it now go somewhere else in POST /v1/customers?</blockquote>
+<p>Guessing is scored as a failure, not a partial success. A value written into an
+unrelated field validates perfectly and is worse than no change at all, because
+nothing downstream will ever complain.</p>
+
+<h2>What's real and what isn't</h2>
+<p>The section most worth checking, so it is stated rather than implied.</p>
+<p><strong>Real.</strong> The
+<button class="term" data-def="A change to the contract of a service you depend on, made without coordinating with you.">drift</button>
+sensors read OpenAPI contracts a provider actually published. Stripe keeps 2,506
+tagged versions in public git, so every change measured here really happened to
+real callers: 589 operations, about 6,500 contract fields, 1,716 field-level
+changes over three years &mdash; of which only 44 could break an existing caller.</p>
+<p><strong>Real.</strong> The benchmark's 71 cases are mined from that history and
+labelled without human annotation. Two properties are enforced when mining and
+re-checked by the tests: each request must be valid before the change and broken
+after it. A benchmark whose data rots keeps printing numbers while measuring
+nothing.</p>
+<p><strong>Simulated.</strong> The full sense &rarr; hypothesise &rarr; verify
+&rarr; act &rarr; recover loop runs against a partner API written for the purpose.
+That simulator is what lets the delayed-signal path be exercised end to end; a
+real provider's ledger does not disagree with you on demand.</p>
+<p><strong>Built, never run.</strong> Tier two &mdash; verification against a live
+provider sandbox &mdash; needs test-mode credentials. Its HTTP path is covered by
+tests with an injected transport. It has not been pointed at Stripe.</p>
+
+<h2>What the numbers say</h2>
+<p>Every row is scored on the same 71 real cases. Two rates, reported separately
+because they trade against each other:
+<strong>adapt</strong> is being correct where the contract holds the answer,
+<strong>ask</strong> is correctly
+<button class="term" data-def="The agent declining to guess, with one specific question. Scored as the correct answer wherever the contract genuinely holds no answer.">escalating</button>
+where it does not.</p>
+
+<div class="scroller"><table class="results">
+  <thead><tr><th>Solver</th><th>Adapt</th><th>Ask</th><th>Unsafe</th></tr></thead>
+  <tbody>
+    <tr><td class="solver">do nothing</td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/27</span></div></td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/44</span></div></td>
+      <td><span class="unsafe-n" data-zero="true">0</span></td></tr>
+    <tr><td class="solver">always ask</td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/27</span></div></td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:100%"></div></div><span class="mval">44/44</span></div></td>
+      <td><span class="unsafe-n" data-zero="true">0</span></td></tr>
+    <tr class="hi"><td class="solver">obvious fix, no gate</td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/27</span></div></td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/44</span></div></td>
+      <td><span class="unsafe-n" data-zero="false">71</span></td></tr>
+    <tr class="hi"><td class="solver">obvious fix, gated</td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/27</span></div></td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:100%"></div></div><span class="mval">44/44</span></div></td>
+      <td><span class="unsafe-n" data-zero="true">0</span></td></tr>
+    <tr><td class="solver">agent, pattern-matching</td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:26%"></div></div><span class="mval">7/27</span></div></td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:82%"></div></div><span class="mval">36/44</span></div></td>
+      <td><span class="unsafe-n" data-zero="false">2</span></td></tr>
+    <tr><td class="solver">agent, model-backed *</td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:52%"></div></div><span class="mval">14/27</span></div></td>
+      <td><div class="meter"><div class="track"><div class="fill" style="width:86%"></div></div><span class="mval">38/44</span></div></td>
+      <td><span class="unsafe-n" data-zero="false">5</span></td></tr>
+  </tbody>
+</table></div>
+<p class="note">* Partial: that run exhausted a free tier's daily token allowance
+and fell back on 32 of 71 cases, so 14/27 is a floor, not a measurement.</p>
+
+<div class="callout">
+  <p><strong>Read the unsafe column first.</strong> It counts fixes that were
+  adopted and are invalid, silently dropped a capability, or guessed where no
+  answer existed. Every other outcome leaves a human able to reason about the
+  situation. An unsafe one looks like success.</p>
+</div>
+
+<p><strong>A model roughly doubles adaptation and costs safety.</strong> 7/27 to
+14/27, with gains exactly where pattern-matching is blind. It also produced three
+more unsafe adoptions, all on renames &mdash; plausible destinations that validate
+and are wrong. That is a gate problem rather than a model problem, and it is the
+next thing to fix.</p>
+
+<p><strong>Most real drift is not locally fixable at all.</strong> 44 of the 71
+cases carry no evidence anywhere of where the capability went. Any pitch resting
+on fully unattended repair has to account for that: the realistic ceiling on this
+provider is about 38%, and the rest is an agent asking one good question instead
+of a human reading a changelog.</p>
+
+<div class="callout">
+  <p><strong>And the least flattering finding came from auditing the benchmark,
+  not the agent.</strong> An earlier version of the scorer reported 42% solved.
+  Reading the per-case output showed what it was rewarding:
+  <code>rename coupon &rarr; phone</code>,
+  <code>rename promotion_code &rarr; address.postal_code</code>, and
+  <code>rename coupon &rarr; {customer}</code> &mdash; which writes a coupon code
+  into a path parameter and addresses an entirely different resource. All three
+  validated. All three preserved the value. All three scored as successes. A
+  benchmark that flatters the system it measures is worse than none, because it
+  retires the question.</p>
+</div>
+
+<details>
+  <summary>Where it succeeds and fails, by kind of change</summary>
+  <p class="note">Fully measured run (pattern-matching agent), so the numbers are
+  clean. Every segment is labelled with its count; the table below carries the
+  same figures. The two smallest slices are left unlabelled rather than
+  cramming a digit into 17 pixels.</p>
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--good)"></i>Solved</span>
+    <span><i class="swatch" style="background:var(--warn)"></i>Asked</span>
+    <span><i class="swatch" style="background:var(--none)"></i>No answer</span>
+    <span><i class="swatch" style="background:var(--crit)"></i>Unsafe</span>
+  </div>
+  <div class="bars">
+    <div class="bar-row"><span class="bar-name">removed (38)</span>
+      <div class="bar">
+        <div class="seg" data-role="solved" style="flex:34">34</div>
+        <div class="seg" data-role="unsolved" style="flex:2" aria-label="2 no answer"></div>
+        <div class="seg" data-role="unsafe" style="flex:2" aria-label="2 unsafe"></div>
+      </div></div>
+    <div class="bar-row"><span class="bar-name">rename (18)</span>
+      <div class="bar">
+        <div class="seg" data-role="solved" style="flex:5">5</div>
+        <div class="seg" data-role="escalated" style="flex:8">8</div>
+        <div class="seg" data-role="unsolved" style="flex:5">5</div>
+      </div></div>
+    <div class="bar-row"><span class="bar-name">type changed (5)</span>
+      <div class="bar">
+        <div class="seg" data-role="escalated" style="flex:1">1</div>
+        <div class="seg" data-role="unsolved" style="flex:4">4</div>
+      </div></div>
+    <div class="bar-row"><span class="bar-name">enum narrowed (5)</span>
+      <div class="bar">
+        <div class="seg" data-role="solved" style="flex:2">2</div>
+        <div class="seg" data-role="unsolved" style="flex:3">3</div>
+      </div></div>
+    <div class="bar-row"><span class="bar-name">newly required (4)</span>
+      <div class="bar">
+        <div class="seg" data-role="solved" style="flex:2">2</div>
+        <div class="seg" data-role="unsolved" style="flex:2">2</div>
+      </div></div>
+    <div class="bar-row"><span class="bar-name">length tightened (1)</span>
+      <div class="bar">
+        <div class="seg" data-role="unsolved" style="flex:1">1</div>
+      </div></div>
+  </div>
+  <table>
+    <thead><tr><th>Kind</th><th>n</th><th>Solved</th><th>Asked</th><th>No answer</th><th>Unsafe</th></tr></thead>
+    <tbody>
+      <tr><td>removed</td><td>38</td><td>34</td><td>0</td><td>2</td><td>2</td></tr>
+      <tr><td>rename</td><td>18</td><td>5</td><td>8</td><td>5</td><td>0</td></tr>
+      <tr><td>type changed</td><td>5</td><td>0</td><td>1</td><td>4</td><td>0</td></tr>
+      <tr><td>enum narrowed</td><td>5</td><td>2</td><td>0</td><td>3</td><td>0</td></tr>
+      <tr><td>newly required</td><td>4</td><td>2</td><td>0</td><td>2</td><td>0</td></tr>
+      <tr><td>length tightened</td><td>1</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
+    </tbody>
+  </table>
+</details>
+
+<h2>Run it</h2>
+<p>No dependencies, no API key, about a minute.</p>
+<pre>git clone https://github.com/AkshitRampershad/EvalSystem &amp;&amp; cd EvalSystem
+python3 run_demo.py                          <span style="color:var(--text-3)"># watch it adapt</span>
+python3 -m bench.run                         <span style="color:var(--text-3)"># score it on real drift</span>
+python3 -m unittest discover -s tests -t .   <span style="color:var(--text-3)"># 144 tests</span></pre>
+
+<div class="cta">
+  <a class="btn" href="https://github.com/AkshitRampershad/EvalSystem">Read the code</a>
+  <a class="btn ghost" href="https://github.com/AkshitRampershad/EvalSystem#what-the-numbers-say">Full results</a>
+</div>
+
+<footer>
+  <p>Built by Akshit Rampershad. The benchmark data is mined from Stripe's public
+  OpenAPI history; this project is not affiliated with Stripe.</p>
+</footer>
+
+</main>
+</body>
+</html>
