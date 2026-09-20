@@ -22,7 +22,7 @@ python3 -m unittest discover -s tests -t .         # 150 tests
 | | |
 |---|---|
 | **Proven** | Drift detection against Stripe's real published contracts, across 2,506 versions. The gate eliminating every unsafe fix, measured. A benchmark that scores any solver on 71 real breaking changes. |
-| **Not proven** | The end-to-end adaptation loop runs against a simulator, not a live provider. Verification against a real provider sandbox is built but needs credentials and has never been run. The best model score is from a partial run. |
+| **Not proven** | The end-to-end adaptation loop runs against a simulator, not a live provider. Verification against a real provider sandbox is built but needs credentials and has never been run. The best model score comes from a run in which the model answered 68 of 71 cases. |
 
 ---
 
@@ -107,9 +107,10 @@ disagree with you on demand.
 needs test-mode credentials. The HTTP path is covered by tests with an injected
 transport. It has not been pointed at Stripe.
 
-**Partial.** The best model-backed score below comes from a run that exhausted a
-free tier's daily token allowance and fell back on 32 of 71 cases. It is labelled
-as a floor, not a measurement.
+**Near-complete.** The model-backed row below comes from a run where the model
+answered 68 of 71 cases; three fell back to the heuristic under free-tier rate
+limiting. Because the heuristic is the safer solver, those three make that row
+look slightly better than it is.
 
 ## What the numbers say
 
@@ -124,7 +125,7 @@ escalate-always                  0/27   44/44       0    100%
 drop-ungated                     0/27    0/44      71      0%
 drop-gated                       0/27   44/44       0    100%
 agent-heuristic                  7/27   35/44       2     97%
-agent-groq:openai/gpt-oss-120b  14/27   38/44       5     93%   * partial
+agent-groq:openai/gpt-oss-120b  13/27   38/44       7     90%   * 68/71 answered
 ```
 
 **Read `UNSAFE` first.** It counts fixes that were adopted and are invalid,
@@ -136,10 +137,11 @@ like success.
 the obvious fix with no verification: unsafe on 71 of 71. The identical solver
 behind the gate: zero. Nothing else here moves a number that far.
 
-**A model roughly doubles adaptation, and costs safety.** 7/27 → 14/27, with
-gains exactly where pattern-matching is blind. It also produced three more unsafe
-adoptions, all on renames — plausible destinations that validate and are wrong.
-That is a gate problem, not a model problem, and it is the next thing to fix.
+**A model nearly doubles adaptation, and costs more safety than it buys.**
+7/27 → 13/27, with gains exactly where pattern-matching is blind. It also took
+unsafe adoptions from 2 to 7 — three on renames, two on narrowed enums:
+plausible destinations that validate and are wrong. That is a gate problem, not
+a model problem, and it is the next thing to fix.
 
 **Most real drift is not locally fixable at all.** 44 of the 71 cases carry no
 evidence anywhere of where the capability went. Any pitch resting on
@@ -350,13 +352,14 @@ drop-ungated                     0/27    0/44      71      0%
 drop-gated                       0/27   44/44       0    100%
 agent-heuristic-ungated          3/27    0/44      58     18%
 agent-heuristic                  7/27   35/44       2     97%
-agent-groq:openai/gpt-oss-120b  14/27   38/44       5     93%   * partial
+agent-groq:openai/gpt-oss-120b  13/27   38/44       7     90%   * 68/71 answered
 ```
 
-`* partial` — that run fell back to heuristics on 32 of 71 cases after exhausting
-a free tier's daily token allowance, so the model answered roughly 39. The 14/27
-is therefore a **floor**, not a measurement. The prompt has since been cut by 56%
-(see below) so a full run fits; the number should be re-measured.
+`*` — the model answered 68 of the 71 cases; three fell back to the heuristic
+after free-tier rate limiting, across 144 waits. Since the heuristic is the
+safer solver, those three flatter this row: **7 unsafe is a floor**. An earlier,
+much dirtier run (39 of 71 answered) reported 14/27 and 5 unsafe; cutting the
+prompt by 56% (see below) is what made a near-complete run fit.
 
 Read `UNSAFE` first. It counts cases where a solver adopted a change that is
 invalid, silently dropped a capability, or guessed where the contract held no
@@ -376,15 +379,21 @@ but ask (35/44 against 44/44). Its entire contribution over the trivial floor is
 7 adaptations — real, but a long way from a system that maintains an integration
 by itself.
 
-**A model-backed reasoner roughly doubles adaptation, and costs safety.** On a
-partial run, `gpt-oss-120b` reached 14/27 while answering only about 39 of the 71
-cases, with gains concentrated exactly where the heuristic is blind: `rename` 5→10,
-`type_changed` 0→2, `length_tightened` 0→1. It also produced three more unsafe
-adoptions, all on `rename` — plausible destinations that validate and are wrong.
-That is the predictable cost of a more confident proposer, and it is a gate problem
-rather than a reasoner problem: a rename destination currently needs only to satisfy
-the schema, when it should have to clear a stronger bar. That is the next fix, and
-the benchmark is what will show whether it works.
+**A model-backed reasoner nearly doubles adaptation, and costs more safety than
+it buys.** Answering 68 of the 71 cases, `gpt-oss-120b` reached 13/27, with gains
+concentrated exactly where the heuristic is blind: `rename` 5→10, `type_changed`
+0→1, `length_tightened` 0→1, `enum_narrowed` 1→2. It also took unsafe adoptions
+from 2 to 7 — three more on `rename`, two on `enum_narrowed` — plausible
+destinations and plausible value mappings that validate and are wrong. That is
+the predictable cost of a more confident proposer, and it is a gate problem
+rather than a reasoner problem: a rename destination currently needs only to
+satisfy the schema, when it should have to clear a stronger bar. That is the next
+fix, and the benchmark is what will show whether it works.
+
+It is worth stating the trade plainly rather than burying it. Six more cases
+adapted, five more left in a state nobody will notice. On these 71 cases the
+model tier is not yet worth switching on by default, which is why the page
+leads with the gate and not with the model.
 
 **The prompt had to shrink before it could be measured at all.** The first attempt
 at a full run died on a free tier's 200,000 tokens-per-day limit, because sending

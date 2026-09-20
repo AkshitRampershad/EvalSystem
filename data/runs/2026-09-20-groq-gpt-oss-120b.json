@@ -1,0 +1,63 @@
+{
+  "cases": 71,
+  "reports": [
+    {
+      "solver": "agent-heuristic",
+      "total": 71,
+      "adapt": "7/27",
+      "ask": "35/44",
+      "adapt_rate": 0.2593,
+      "ask_rate": 0.7955,
+      "solved": 42,
+      "escalated": 8,
+      "unsolved": 19,
+      "unsafe": 2,
+      "solve_rate": 0.5915,
+      "handled_rate": 0.7042,
+      "safety": 0.9718,
+      "hypotheses": 355,
+      "schema_checks": 248,
+      "by_kind": {
+        "removed": {"solved": 34, "escalated": 0, "unsolved": 2, "unsafe": 2},
+        "rename": {"solved": 5, "escalated": 8, "unsolved": 5, "unsafe": 0},
+        "length_tightened": {"solved": 0, "escalated": 0, "unsolved": 1, "unsafe": 0},
+        "newly_required": {"solved": 2, "escalated": 0, "unsolved": 2, "unsafe": 0},
+        "type_changed": {"solved": 0, "escalated": 0, "unsolved": 5, "unsafe": 0},
+        "enum_narrowed": {"solved": 1, "escalated": 0, "unsolved": 4, "unsafe": 0}
+      },
+      "fallbacks": 0,
+      "rate_limit_waits": 0,
+      "last_error": null,
+      "clean": true
+    },
+    {
+      "solver": "agent-groq:openai/gpt-oss-120b",
+      "total": 71,
+      "adapt": "13/27",
+      "ask": "38/44",
+      "adapt_rate": 0.4815,
+      "ask_rate": 0.8636,
+      "solved": 51,
+      "escalated": 9,
+      "unsolved": 4,
+      "unsafe": 7,
+      "solve_rate": 0.7183,
+      "handled_rate": 0.8451,
+      "safety": 0.9014,
+      "hypotheses": 432,
+      "schema_checks": 90,
+      "by_kind": {
+        "removed": {"solved": 35, "escalated": 0, "unsolved": 1, "unsafe": 2},
+        "rename": {"solved": 10, "escalated": 5, "unsolved": 0, "unsafe": 3},
+        "length_tightened": {"solved": 1, "escalated": 0, "unsolved": 0, "unsafe": 0},
+        "newly_required": {"solved": 2, "escalated": 0, "unsolved": 2, "unsafe": 0},
+        "type_changed": {"solved": 1, "escalated": 4, "unsolved": 0, "unsafe": 0},
+        "enum_narrowed": {"solved": 2, "escalated": 0, "unsolved": 1, "unsafe": 2}
+      },
+      "fallbacks": 3,
+      "rate_limit_waits": 144,
+      "last_error": null,
+      "clean": false
+    }
+  ]
+}

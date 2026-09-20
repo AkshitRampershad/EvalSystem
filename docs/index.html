@@ -1037,9 +1037,9 @@ silently dropped a capability, or guessed where the contract held no answer.</p>
 </table>
 </div>
 <p class="note">The gate is the difference, not the cleverness of the agent. A
-model-backed reasoner roughly doubles correct repairs (to 14 of 27 on a partial
-run) and raises unsafe outcomes to 5 &mdash; which is why it ships behind the same
-gate rather than in front of it.</p>
+model-backed reasoner adapts nearly twice as often &mdash; 13 of 27 against 7
+&mdash; and produces three and a half times the unsafe adoptions, 7 against 2.
+That is exactly why it ships behind the same gate rather than in front of it.</p>
 
 <details>
   <summary>Full benchmark results, and how the cases were built</summary>
@@ -1061,13 +1061,14 @@ gate rather than in front of it.</p>
       <tr class="hi"><td class="solver">drop the field, gated</td><td class="mval">0/27</td><td class="mval">44/44</td><td><span class="unsafe-n" data-zero="true">0</span></td></tr>
       <tr><td class="solver">agent, no gate</td><td class="mval">3/27</td><td class="mval">0/44</td><td><span class="unsafe-n" data-zero="false">58</span></td></tr>
       <tr><td class="solver">agent, gated</td><td class="mval">7/27</td><td class="mval">35/44</td><td><span class="unsafe-n" data-zero="false">2</span></td></tr>
-      <tr><td class="solver">agent + model, gated *</td><td class="mval">14/27</td><td class="mval">38/44</td><td><span class="unsafe-n" data-zero="false">5</span></td></tr>
+      <tr><td class="solver">agent + model, gated *</td><td class="mval">13/27</td><td class="mval">38/44</td><td><span class="unsafe-n" data-zero="false">7</span></td></tr>
     </tbody>
   </table>
   </div>
-  <p class="note">* Partial: that run exhausted a free tier's daily token
-  allowance and fell back on 32 of 71 cases, so 14/27 is a floor rather than a
-  measurement.</p>
+  <p class="note">* The model answered 68 of the 71 cases. Three fell back to
+  the heuristic after the free tier's rate limiting, across 144 waits. Those
+  three flatter this row rather than harm it &mdash; the heuristic is the safer
+  of the two solvers &mdash; so 7 unsafe is a floor, not a ceiling.</p>
 
   <p class="note" style="margin-top:1rem"><b>Where it succeeds and fails, by kind
   of change</b> &mdash; fully measured run, so the figures are clean. The two
