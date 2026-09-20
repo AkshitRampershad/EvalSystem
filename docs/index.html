@@ -33,7 +33,14 @@
    is set in rem for the same reason: scaling the text alone would shorten every
    line and change how the page breaks. Narrow screens step back down, where 21px
    body text would leave about thirty characters to a line. */
-html{-webkit-text-size-adjust:100%;font-size:125%}
+/* The root size tracks the viewport, so the composition is proportionally the
+   same on a 1280 laptop and a 1680 monitor: identical line breaks, identical
+   relative sizes, only the physical size differs. The bounds stop it collapsing
+   on a small window or ballooning on a very large one. */
+html{-webkit-text-size-adjust:100%;font-size:clamp(17px,1.76vw,32px)}
+/* Below tablet width proportional scaling stops being readable -- an 87
+   character line at 26px cannot fit a 390px screen at any size -- so phones get
+   a fixed, legible size instead. */
 @media (max-width:820px){html{font-size:100%}}
 body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
   line-height:1.6;font-size:1.0625rem;overflow-wrap:break-word}
@@ -57,7 +64,8 @@ header{padding:3.2rem 0 .5rem}
 .hero-label{font-size:.9rem;color:var(--text-2);margin:0 0 .9rem}
 .hero-pair{display:flex;align-items:baseline;gap:.9rem;flex-wrap:wrap}
 .hero-num{font-size:clamp(2.6rem,9vw,3.6rem);font-weight:700;line-height:1;
-  font-variant-numeric:tabular-nums}
+  font-variant-numeric:tabular-nums;display:inline-block;min-width:2ch;
+  text-align:center}
 .hero-num.bad{color:var(--crit)}
 .hero-num.good{color:var(--good)}
 .hero-arrow{font-size:1.5rem;color:var(--text-3)}
@@ -112,8 +120,8 @@ table.results tr.hi td{background:var(--surface-alt)}
 .legend span{display:inline-flex;align-items:center;gap:.35rem;color:var(--text-2)}
 .swatch{width:11px;height:11px;border-radius:3px;flex:none}
 .bars{margin:.6rem 0}
-.bar-row{display:grid;grid-template-columns:158px 1fr;gap:10px;align-items:center;
-  margin:.42rem 0}
+.bar-row{display:grid;grid-template-columns:max-content 1fr;gap:10px;
+  align-items:center;margin:.42rem 0}
 @media (max-width:520px){.bar-row{grid-template-columns:1fr;gap:3px}}
 .bar-name{font-family:var(--mono);font-size:.78rem;color:var(--text-2)}
 .bar{display:flex;height:22px;border-radius:5px;overflow:hidden;gap:2px;
@@ -178,6 +186,28 @@ p code,li code{background:var(--surface-alt);padding:.1rem .32rem;border-radius:
 footer{margin:3.5rem 0 2.5rem;padding-top:1.2rem;border-top:1px solid var(--border);
   font-size:.86rem;color:var(--text-3)}
 
+
+
+/* ---- motion ----------------------------------------------------------
+   Everything below animates FROM the finished state, never to it: the CSS
+   resting state is the complete page, and script only adds a starting point
+   when motion is welcome. So the page is whole with JavaScript off, and whole
+   in the first frame a screenshot or a slow connection captures. */
+@media (prefers-reduced-motion:no-preference){
+  .pillar,.card,.step,.chip,.btn{transition:transform .18s ease,box-shadow .18s ease,
+    border-color .18s ease,color .18s ease}
+  .pillar:hover,.card:hover,.step:hover{transform:translateY(-2px);
+    box-shadow:var(--shadow)}
+  .btn:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+  .chip:hover{transform:translateY(-1px)}
+  #pg-out{animation:pg-in .22s ease both}
+  @keyframes pg-in{from{opacity:.25;transform:translateY(4px)}to{opacity:1;transform:none}}
+}
+/* The one orchestrated moment: the figure the whole page rests on. */
+.hero-num{transition:none}
+@media (prefers-reduced-motion:no-preference){
+  .hero-num{transition:color .4s ease}
+}
 
 /* ---- playground ---- */
 .pg{background:var(--card);border:1px solid var(--border);border-radius:12px;
@@ -608,7 +638,7 @@ gate rather than in front of it.</p>
     <div class="bar-row"><span class="bar-name">length tightened (1)</span>
       <div class="bar"><div class="seg" data-role="unsolved" style="flex:1">1</div></div></div>
   </div>
-  <table>
+  <div class="scroller"><table>
     <thead><tr><th>Kind</th><th>n</th><th>Solved</th><th>Asked</th><th>No answer</th><th>Unsafe</th></tr></thead>
     <tbody>
       <tr><td>removed</td><td>38</td><td>34</td><td>0</td><td>2</td><td>2</td></tr>
@@ -619,6 +649,7 @@ gate rather than in front of it.</p>
       <tr><td>length tightened</td><td>1</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
     </tbody>
   </table>
+  </div>
   <p class="note" style="margin-top:.8rem">44 of the 71 cases carry no evidence
   anywhere of where the capability went, so the realistic ceiling for unattended
   repair against this provider is about 38%. The rest is the agent asking one good
@@ -697,6 +728,131 @@ python3 run_demo.py                          <span style="color:var(--text-3)">#
   OpenAPI history; this project is not affiliated with Stripe, and the providers
   named on this page are examples of published contracts, not partnerships.</p>
 </footer>
+
+<script>
+/* Motion, applied only where it is welcome and only from a finished state.
+   Read the page with scripting off and nothing is missing; read it with reduced
+   motion on and nothing moves. */
+(function () {
+  "use strict";
+  var motionOK = !window.matchMedia ||
+    !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!motionOK) return;
+
+  var seen = typeof IntersectionObserver === "function" ? new IntersectionObserver(
+    function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        e.target.dispatchEvent(new CustomEvent("pp:enter"));
+        seen.unobserve(e.target);
+      });
+    }, { threshold: 0.35 }) : null;
+
+  function onEnter(el, fn) {
+    if (!seen) { fn(); return; }
+    el.addEventListener("pp:enter", fn, { once: true });
+    seen.observe(el);
+  }
+
+  /* Set a starting point, let the browser paint it, then release to the state
+     the CSS already had. Two details make or break this:
+
+     - transitions are suppressed while the starting point is set, or the
+       element animates *into* it and the release interrupts that at 3%, which
+       is what a dead-looking almost-animation actually is;
+     - the release waits a second frame, because a style change and its undo
+       inside one frame are coalesced and nothing transitions at all.
+
+     release() names the transition it wants, and it is cleared once the
+     entrance is over so the CSS hover transitions take back over. */
+  function fromState(els, start, release, ms) {
+    els.forEach(function (el) { el.style.transition = "none"; });
+    els.forEach(start);
+    els[0].getBoundingClientRect(); /* flush the suppressed starting point */
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        els.forEach(release);
+        if (ms) setTimeout(function () {
+          els.forEach(function (el) { el.style.transition = ""; });
+        }, ms);
+      });
+    });
+  }
+
+  /* The hero figure. 71 of 71 unsafe, then zero behind the gate -- the sentence
+     the page is built to land, so it is the one thing that gets a real moment. */
+  document.querySelectorAll(".hero-num").forEach(function (el) {
+    var target = parseInt(el.textContent, 10);
+    if (isNaN(target)) return;
+    onEnter(el, function () {
+      var from = el.classList.contains("good") ? 71 : 0;
+      var start = null, dur = 750;
+      el.textContent = String(from);
+      requestAnimationFrame(function step(ts) {
+        if (start === null) start = ts;
+        var t = Math.min(1, (ts - start) / dur);
+        var eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = String(Math.round(from + (target - from) * eased));
+        if (t < 1) requestAnimationFrame(step);
+        else el.textContent = String(target);
+      });
+    });
+  });
+
+  var arrow = document.querySelector(".hero-arrow");
+  if (arrow) onEnter(arrow, function () {
+    fromState([arrow], function (el) {
+      el.style.transform = "translateX(-9px)"; el.style.opacity = "0";
+    }, function (el) {
+      el.style.transition = "transform .5s ease, opacity .5s ease";
+      el.style.transform = "none"; el.style.opacity = "1";
+    }, 600);
+  });
+
+  /* The stacked bars wipe in from the left rather than growing their segments:
+     clipping leaves every proportion and every label exactly where the markup
+     put it, so a bar that never animates is simply already right. They sit in a
+     closed <details>, which is why opening it is one of the entry points. */
+  function wipe(root) {
+    var bars = root.querySelectorAll(".bar");
+    if (!bars.length) return;
+    fromState([].slice.call(bars), function (bar) {
+      bar.style.clipPath = "inset(0 100% 0 0)";
+    }, function (bar, i) {
+      bar.style.transition = "clip-path .62s cubic-bezier(.22,.61,.36,1) " +
+        (i * 60) + "ms";
+      bar.style.clipPath = "inset(0 0 0 0)";
+    }, 620 + bars.length * 60);
+  }
+  function once(el, fn) {
+    if (el.dataset.ppDone) return;
+    el.dataset.ppDone = "1";
+    fn(el);
+  }
+  document.querySelectorAll("details").forEach(function (d) {
+    d.addEventListener("toggle", function () {
+      if (!d.open) return;
+      d.querySelectorAll(".bars").forEach(function (b) { once(b, wipe); });
+    }, false);
+  });
+  document.querySelectorAll(".bars").forEach(function (b) {
+    if (b.offsetParent === null) return; /* inside a closed <details> */
+    onEnter(b, function () { once(b, wipe); });
+  });
+
+  /* The three-step flow reads left to right, so let it arrive that way once. */
+  var steps = [].slice.call(document.querySelectorAll(".flow .step, .flow .arrow"));
+  if (steps.length) onEnter(steps[0], function () {
+    fromState(steps, function (el) {
+      el.style.opacity = "0"; el.style.transform = "translateY(8px)";
+    }, function (el, i) {
+      el.style.transition = "opacity .34s ease " + (i * 70) + "ms, " +
+        "transform .34s ease " + (i * 70) + "ms";
+      el.style.opacity = "1"; el.style.transform = "none";
+    }, 360 + steps.length * 70);
+  });
+})();
+</script>
 
 </main>
 </body>
