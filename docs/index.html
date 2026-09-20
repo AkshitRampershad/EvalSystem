@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%236E632E'/%3E%3Cpath d='M9 16.8l4.6 4.6L23 12' fill='none' stroke='%23EDE8D0' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <title>PatchProof</title>
 <meta name="description" content="Stop silent API outages. PatchProof watches third-party API contracts, refuses automated fixes that silently drop a capability, and turns the rest into one precise question.">
 <style>
@@ -253,6 +254,36 @@ footer{margin:3.5rem 0 2.5rem;padding-top:1.2rem;border-top:1px solid var(--bord
 .verdict .q{font-size:.95rem;margin:0}
 .verdict code{font-size:.85rem}
 .pg-err{color:var(--crit);font-size:.86rem;margin:.6rem 0 0}
+.bc-tally{margin:0 0 1.1rem}
+.bc-tally table{width:100%;border-collapse:collapse;font-size:.86rem}
+.bc-tally th,.bc-tally td{text-align:left;padding:.4rem .5rem .4rem 0;
+  border-bottom:1px solid var(--border)}
+.bc-tally th{font-family:var(--mono);font-size:.72rem;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--text-3);font-weight:600}
+.bc-tally td.n{font-family:var(--mono)}
+.bc-tally .row-sys td{background:var(--surface-alt)}
+.bc-check{font-size:.8rem;color:var(--text-3);margin:.5rem 0 0}
+.bc-check[data-ok="false"]{color:var(--crit)}
+#bc-pick{width:100%;font-family:var(--mono);font-size:.78rem;padding:.5rem .6rem;
+  border-radius:9px;border:1px solid var(--border);background:var(--bg);
+  color:var(--text);margin:0 0 .3rem}
+#bc-pick:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.bc-meta{font-family:var(--mono);font-size:.74rem;color:var(--text-3);
+  margin:0 0 .7rem;overflow-wrap:anywhere}
+.bc-req{font-family:var(--mono);font-size:.76rem;background:var(--surface-alt);
+  border-radius:8px;padding:.55rem .7rem;margin:0 0 .8rem;overflow-wrap:anywhere}
+.badge{display:inline-block;font-family:var(--mono);font-size:.68rem;
+  letter-spacing:.05em;text-transform:uppercase;padding:.15rem .45rem;
+  border-radius:5px;margin-left:.4rem;vertical-align:.08em;color:var(--btn-fg)}
+.badge[data-r="solved"]{background:var(--good)}
+.badge[data-r="escalated"]{background:var(--warn);color:#2a1e00}
+.badge[data-r="unsolved"]{background:var(--none)}
+.badge[data-r="unsafe"]{background:var(--crit)}
+.verdict[data-score]{background:var(--surface-alt)}
+.verdict[data-score="solved"]{border-left:3px solid var(--good)}
+.verdict[data-score="escalated"]{border-left:3px solid var(--warn)}
+.verdict[data-score="unsolved"]{border-left:3px solid var(--none)}
+.verdict[data-score="unsafe"]{border-left:3px solid var(--crit)}
 .pg-tried{margin:.8rem 0 0;font-size:.8rem;color:var(--text-3)}
 .pg-tried li{font-family:var(--mono);font-size:.74rem;margin:.15rem 0}
 
@@ -447,6 +478,28 @@ Nothing is sent anywhere; it runs in this page.</p>
   <div class="pg-out" id="pg-out" aria-live="polite"></div>
 </div>
 
+<h2 id="try">Or step through the 71 real cases</h2>
+<p>The table further down is measured on 71 breaking changes taken from Stripe's
+published history. Rather than ask you to take those numbers on trust, this
+loads the same case file the benchmark runs on and recomputes both rows in your
+browser &mdash; every case, scored by a port of <code>bench/score.py</code> that
+the conformance test holds to the Python. You can then open any single case and
+see what each solver did with it.</p>
+
+<div class="pg">
+  <div class="pg-run">
+    <button class="btn" type="button" id="bc-load">Load the benchmark</button>
+    <span class="pg-op" id="bc-status">57&nbsp;KB, fetched only when you ask</span>
+  </div>
+
+  <div id="bc-body" hidden>
+    <div class="bc-tally" id="bc-tally"></div>
+    <label for="bc-pick">Pick a case</label>
+    <select id="bc-pick"></select>
+    <div class="pg-out" id="bc-out" aria-live="polite"></div>
+  </div>
+</div>
+
 <script src="playground.js"></script>
 <script>
 (function () {
@@ -637,10 +690,132 @@ Nothing is sent anywhere; it runs in this page.</p>
   after.value = PRESETS.coupon[1];
   req.value = PRESETS.coupon[2];
   run();
+
+  /* ---- the benchmark, recomputed in the browser ------------------------
+     The case file is the one bench/ runs on, byte for byte (tests/
+     test_page_data.py fails if it drifts), and it is fetched only when
+     asked so the page costs nothing to read. */
+  var PUBLISHED = {
+    "agent-heuristic":         { adapt: "7/27", ask: "35/44", unsafe: 2 },
+    "agent-heuristic-ungated": { adapt: "3/27", ask: "0/44",  unsafe: 58 }
+  };
+  var loadBtn = $("bc-load"), status = $("bc-status"), body = $("bc-body"),
+      pick = $("bc-pick"), bcOut = $("bc-out"), bcTally = $("bc-tally");
+  var DATA = null, SCORED = null;
+
+  function contractsFor(c) {
+    return [DATA.contracts[c.from_version + "|" + c.operation],
+            DATA.contracts[c.to_version + "|" + c.operation]];
+  }
+
+  function fmt(t) { return { adapt: t.adaptSolved + "/" + t.adaptN,
+                             ask: t.askSolved + "/" + t.askN, unsafe: t.unsafe }; }
+
+  function renderTally() {
+    var g = PatchProof.tally(SCORED.map(function (s) { return s.gatedOutcome; }));
+    var u = PatchProof.tally(SCORED.map(function (s) { return s.ungatedOutcome; }));
+    var rows = [["agent-heuristic-ungated", u, false], ["agent-heuristic", g, true]];
+    var html = "<table><thead><tr><th>Solver</th><th>Adapt</th><th>Ask</th>" +
+      "<th>Unsafe</th></tr></thead><tbody>";
+    var ok = true;
+    rows.forEach(function (r) {
+      var got = fmt(r[1]), want = PUBLISHED[r[0]];
+      if (got.adapt !== want.adapt || got.ask !== want.ask || got.unsafe !== want.unsafe)
+        ok = false;
+      html += '<tr class="' + (r[2] ? "row-sys" : "") + '"><td>' + esc(r[0]) +
+        '</td><td class="n">' + got.adapt + '</td><td class="n">' + got.ask +
+        '</td><td class="n">' + got.unsafe + "</td></tr>";
+    });
+    html += "</tbody></table>";
+    html += '<p class="bc-check" data-ok="' + ok + '">' + (ok
+      ? "Recomputed from " + SCORED.length + " cases just now, in this page. " +
+        "These are the same figures as the published table."
+      : "These figures do not match the published table \u2014 that is a bug, " +
+        "and you are looking at it.") + "</p>";
+    bcTally.innerHTML = html;
+  }
+
+  function renderCase(i) {
+    var c = DATA.cases[i], s = SCORED[i], pair = contractsFor(c);
+    var html = '<p class="bc-meta">' + esc(c.case_id) + "</p>";
+    html += '<div class="bc-req"><b>The request:</b> ' +
+      esc(JSON.stringify(c.payload)) + "</div>";
+    html += '<p style="margin:0 0 .2rem"><b>' + s.signals.length + " change" +
+      (s.signals.length === 1 ? "" : "s") + " detected</b> &middot; expected " +
+      "answer: <b>" + esc(c.expected_outcome) + "</b></p><div class=\"pg-sig\">";
+    s.signals.slice(0, 8).forEach(function (sig) {
+      html += '<span class="sig" data-impact="' + sig.detail.impact + '">' +
+        esc(sig.kind) + " &middot; " + esc(sig.detail.field) + "</span>";
+    });
+    if (s.signals.length > 8)
+      html += '<span class="sig">+' + (s.signals.length - 8) + " more</span>";
+    html += "</div>";
+
+    var badge = function (o) {
+      return '<span class="badge" data-r="' + o.result + '">' + o.result + "</span>"; };
+    html += '<div class="pg-compare">';
+    html += '<div class="verdict" data-score="' + s.ungatedOutcome.result +
+      '"><h4>Auto-fix with no gate' + badge(s.ungatedOutcome) + '</h4><p class="q">' +
+      (s.ungated.patch ? "<code>" + esc(PatchProof.describePatch(s.ungated.patch)) +
+        "</code><br>" : "") + esc(s.ungatedOutcome.detail || "Nothing proposed.") +
+      "</p></div>";
+    html += '<div class="verdict" data-score="' + s.gatedOutcome.result +
+      '"><h4>PatchProof' + badge(s.gatedOutcome) + '</h4><p class="q">' +
+      esc(s.verdict.question || s.gatedOutcome.detail || "Nothing proposed.") +
+      "</p></div></div>";
+
+    if (s.verdict.rejected && s.verdict.rejected.length) {
+      html += '<details class="pg-tried"><summary>What it tried and rejected (' +
+        s.verdict.rejected.length + ")</summary><ul>";
+      s.verdict.rejected.forEach(function (pr) {
+        html += "<li>" + esc(pr[0]) + " &mdash; " + esc(pr[1]) + "</li>"; });
+      html += "</ul></details>";
+    }
+    html += '<details class="pg-tried"><summary>The two contracts, as PatchProof ' +
+      'parsed them</summary><ul><li>' + esc(c.from_version) + ": " +
+      esc(Object.keys(pair[0].fields).join(", ")) + "</li><li>" + esc(c.to_version) +
+      ": " + esc(Object.keys(pair[1].fields).join(", ")) + "</li></ul></details>";
+    bcOut.innerHTML = html;
+  }
+
+  loadBtn.addEventListener("click", function () {
+    loadBtn.disabled = true;
+    status.textContent = "Loading\u2026";
+    fetch("cases.json").then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (d) {
+      DATA = d;
+      SCORED = d.cases.map(function (c) {
+        var pair = contractsFor(c);
+        return PatchProof.scoreCase(c, pair[0], pair[1]);
+      });
+      pick.innerHTML = d.cases.map(function (c, i) {
+        return '<option value="' + i + '">' + esc(c.operation + "  \u00b7  " +
+          c.focus_field + "  \u00b7  " + c.kind + "  \u00b7  " +
+          c.from_version + " \u2192 " + c.to_version) + "</option>";
+      }).join("");
+      status.textContent = d.cases.length + " cases, scored in this page";
+      body.hidden = false;
+      renderTally();
+      renderCase(0);
+    }).catch(function (e) {
+      loadBtn.disabled = false;
+      status.textContent = "";
+      bcTally.innerHTML = '<p class="pg-err">Could not load the case file: ' +
+        esc(e.message) + ". It is fetched over HTTP, so this will not work from " +
+        "a <code>file://</code> copy of the page.</p>";
+    });
+  });
+
+  pick.addEventListener("change", function () { renderCase(Number(pick.value)); });
 })();
 </script>
 
 <h2>Why ungated auto-fixing is dangerous</h2>
+<p class="note" style="margin:0 0 .6rem">Every number in this section can be
+recomputed in your browser, case by case, from
+<a href="#try">the case browser above</a>.</p>
 <p>Every row below is measured on the same 71 real breaking changes, not
 estimated. &ldquo;Unsafe&rdquo; means a repair was adopted that is invalid,
 silently dropped a capability, or guessed where the contract held no answer.</p>

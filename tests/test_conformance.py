@@ -21,8 +21,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from bench import score                               # noqa: E402
 from bench.cases import CaseSet                       # noqa: E402
 from bench.run import DEFAULT_CASES                   # noqa: E402
+from bench.solvers import Attempt                     # noqa: E402
 from sell.policy import Policy                        # noqa: E402
 from sell.real import diff as differ                  # noqa: E402
 from sell.real import gate as gt                      # noqa: E402
@@ -46,6 +48,14 @@ RATIO_PAIRS = [
 
 def node() -> str | None:
     return shutil.which("node")
+
+
+def _outcome(case, new, adopted, question, rejected):
+    """`bench.score.judge` on one attempt, reduced to what the page shows."""
+    attempt = Attempt(case.case_id, "x", adopted=adopted, question=question,
+                      rejected=rejected or [])
+    o = score.judge(case, new, attempt)
+    return {"result": o.result, "detail": o.detail, "lost": list(o.lost)}
 
 
 def _ungated(candidates, payload, new):
@@ -96,6 +106,13 @@ class TestBrowserEngineMatchesPython(unittest.TestCase):
             verdict = gt.RealGate(new).evaluate(Policy(), candidates, case.payload)
             py[case.case_id] = {
                 "ungated": _ungated(candidates, case.payload, new),
+                # The page recomputes the published table in the browser, so
+                # both solver rows have to be scored identically on both sides.
+                "gatedOutcome": _outcome(
+                    case, new, verdict.patch if verdict.adoptable else None,
+                    verdict.question, verdict.rejected),
+                "ungatedOutcome": _outcome(
+                    case, new, candidates[0] if candidates else None, None, []),
                 "signals": [[s.kind, s.detail.get("field"), s.detail.get("impact")]
                             for s in signals],
                 "candidates": [p.describe() for p in candidates],
@@ -105,7 +122,12 @@ class TestBrowserEngineMatchesPython(unittest.TestCase):
                 "adopted": verdict.patch.describe() if verdict.adoptable else None,
             }
             payload["pipeline"][case.case_id] = {
-                "old": old, "new": new, "payload": case.payload}
+                "old": old, "new": new, "payload": case.payload,
+                "case": {"case_id": case.case_id, "kind": case.kind,
+                         "payload": case.payload,
+                         "focus_field": case.focus_field,
+                         "expected_outcome": case.expected_outcome,
+                         "expected_target": case.expected_target}}
 
         for name, method, path, depth in [
             ("widgets-v1-post", "post", "/v1/widgets", 2),
@@ -168,6 +190,10 @@ class TestBrowserEngineMatchesPython(unittest.TestCase):
             self.assertEqual(got["lost"], expected["lost"], f"{case_id}: lost capability")
             self.assertEqual(got["adopted"], expected["adopted"], f"{case_id}: adopted")
             self.assertEqual(got["ungated"], expected["ungated"], f"{case_id}: ungated")
+            self.assertEqual(got["gatedOutcome"], expected["gatedOutcome"],
+                             f"{case_id}: gated outcome")
+            self.assertEqual(got["ungatedOutcome"], expected["ungatedOutcome"],
+                             f"{case_id}: ungated outcome")
 
     def test_the_comparison_actually_covered_the_whole_benchmark(self):
         compared = [k for k in self.py if k != "_extraction"]

@@ -5,6 +5,7 @@ const pp = require("../docs/playground.js");
 
 const input = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const out = {};
+const slim = o => ({ result: o.result, detail: o.detail, lost: o.lost });
 
 for (const [id, c] of Object.entries(input.pipeline || {})) {
   const signals = pp.diffContracts(c.old, c.new);
@@ -15,6 +16,13 @@ for (const [id, c] of Object.entries(input.pipeline || {})) {
     // What ships with no gate, as the page shows it beside the gated verdict.
     ungated: { patch: u.patch ? pp.describePatch(u.patch) : null,
                outcome: u.outcome, lost: u.lost },
+    // Both rows of the published table, scored the way bench/score.py does.
+    gatedOutcome: slim(pp.judge(c.case, c.new, {
+      adopted: verdict.adoptable ? verdict.patch : null,
+      question: verdict.question, rejected: verdict.rejected })),
+    ungatedOutcome: slim(pp.judge(c.case, c.new, {
+      adopted: candidates.length ? candidates[0] : null,
+      question: null, rejected: [] })),
     signals: signals.map(s => [s.kind, s.detail.field, s.detail.impact]),
     candidates: candidates.map(p => pp.describePatch(p)),
     tier: verdict.tier,

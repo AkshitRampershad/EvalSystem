@@ -547,6 +547,85 @@
     };
   }
 
+  // ---- bench/score.py ----------------------------------------------------
+  const SOLVED = "solved", ESCALATED = "escalated",
+        UNSOLVED = "unsolved", UNSAFE = "unsafe";
+  const ADAPT = "adapt", ESCALATE = "escalate";
+
+  function landedIn(after, target, value) {
+    const want = new Set(); scalars(value, want);
+    const got = new Set(); scalars(after[target], got);
+    return want.size > 0 && [...want].every(v => got.has(v));
+  }
+
+  /* A port of bench/score.py judge(). Four outcomes, and only `unsafe` is a
+     real failure: adopting something invalid, adopting something that quietly
+     stops expressing a value, or guessing on a case where the contract holds
+     no answer -- that last one counts as the worst precisely because it looks
+     like success. */
+  function judge(kase, newContract, attempt) {
+    const expectsEscalation = kase.expected_outcome === ESCALATE;
+    const mk = (result, detail, lost) => ({
+      case_id: kase.case_id, kind: kase.kind, result: result,
+      detail: (detail || "").slice(0, 120), lost: lost || [],
+      expected: kase.expected_outcome });
+
+    if (!attempt.adopted) {
+      if (attempt.question)
+        return mk(expectsEscalation ? SOLVED : ESCALATED, attempt.question);
+      const why = attempt.rejected && attempt.rejected.length
+        ? attempt.rejected[0][1] : "no hypothesis";
+      return mk(UNSOLVED, why);
+    }
+
+    const after = render(kase.payload, attempt.adopted);
+    const error = validate(newContract, after);
+    if (error)
+      return mk(UNSAFE, "adopted but still invalid: " + error.code +
+                        " on '" + error.field + "'");
+    const lost = lostCapability(kase.payload, after);
+    if (lost.length)
+      return mk(UNSAFE, "adopted but stopped expressing " + lost.join(", "), lost);
+    if (expectsEscalation)
+      return mk(UNSAFE, "guessed instead of asking: " +
+                        describePatch(attempt.adopted).slice(0, 90));
+    if (kase.expected_target &&
+        !landedIn(after, kase.expected_target, kase.payload[kase.focus_field]))
+      return mk(UNSAFE, "valid, but the value did not reach '" +
+                        kase.expected_target + "': " +
+                        describePatch(attempt.adopted).slice(0, 70));
+    return mk(SOLVED, describePatch(attempt.adopted));
+  }
+
+  /* Both solver rows from the published table, for one case. `gated` is the
+     system; `ungated` is the same proposals with nothing checking them. */
+  function scoreCase(kase, oldC, newC) {
+    const signals = diffContracts(oldC, newC);
+    const candidates = propose(signals, { contract: newC, canonical: kase.payload });
+    const verdict = evaluate(newC, candidates, kase.payload);
+    const raw = ungated(candidates, kase.payload, newC);
+    return {
+      signals: signals, candidates: candidates, verdict: verdict, ungated: raw,
+      gatedOutcome: judge(kase, newC, {
+        adopted: verdict.adoptable ? verdict.patch : null,
+        question: verdict.question, rejected: verdict.rejected }),
+      ungatedOutcome: judge(kase, newC, {
+        adopted: candidates.length ? candidates[0] : null,
+        question: null, rejected: [] })
+    };
+  }
+
+  function tally(outcomes) {
+    const t = { solved: 0, escalated: 0, unsolved: 0, unsafe: 0,
+                adaptSolved: 0, adaptN: 0, askSolved: 0, askN: 0 };
+    for (const o of outcomes) {
+      t[o.result] += 1;
+      if (o.expected === ADAPT) { t.adaptN += 1; if (o.result === SOLVED) t.adaptSolved += 1; }
+      else { t.askN += 1; if (o.result === SOLVED) t.askSolved += 1; }
+    }
+    return t;
+  }
+
   // ---- one-call pipeline for the page ------------------------------------
   function analyse(oldSpec, newSpec, method, path, payload) {
     const oldC = contract(oldSpec, method, path);
@@ -576,7 +655,9 @@
 
   const api = { contract, pyRepr, diffContracts, validate, propose, evaluate, analyse, render,
                 lostCapability, ungated, ratio, getCloseMatches, describePatch,
-                BREAKING, ADDITIVE, COSMETIC, SCHEMA, NEEDS_HUMAN, REJECTED };
+                judge, scoreCase, tally,
+                BREAKING, ADDITIVE, COSMETIC, SCHEMA, NEEDS_HUMAN, REJECTED,
+                SOLVED, ESCALATED, UNSOLVED, UNSAFE, ADAPT, ESCALATE };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.PatchProof = api;
 })(typeof self !== "undefined" ? self : this);
