@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PatchProof</title>
-<meta name="description" content="When a service you depend on changes, the obvious fix passes every check and silently stops doing the job. An agent that repairs integrations, a gate that refuses fixes which only look correct, and a benchmark on 71 real breaking changes.">
+<meta name="description" content="Stop silent API outages. PatchProof watches third-party API contracts, refuses automated fixes that silently drop a capability, and turns the rest into one precise question.">
 <style>
 /* Palette: beige #EDE8D0, olive #6E632E, lavender #DBD1ED, dusty blue #ABBEED.
    This page commits to one look deliberately -- there is no dark variant, and a
@@ -171,6 +171,59 @@ p code,li code{background:var(--surface-alt);padding:.1rem .32rem;border-radius:
   outline-offset:2px}
 footer{margin:3.5rem 0 2.5rem;padding-top:1.2rem;border-top:1px solid var(--border);
   font-size:.86rem;color:var(--text-3)}
+
+/* ---- commercial layout additions ---- */
+.hero-cta{display:flex;flex-wrap:wrap;gap:.7rem;margin:1.4rem 0 1.1rem}
+.trustrow{display:flex;flex-wrap:wrap;gap:.5rem .75rem;margin:1.1rem 0 0;
+  font-size:.8rem;color:var(--text-3);font-family:var(--mono)}
+.trustrow span{display:inline-flex;align-items:center;gap:.4rem}
+.trustrow span::before{content:"";width:6px;height:6px;border-radius:50%;
+  background:var(--accent);flex:none}
+.pillars{display:grid;gap:14px;grid-template-columns:repeat(3,1fr);margin:1.4rem 0}
+@media (max-width:720px){.pillars{grid-template-columns:1fr}}
+.pillar{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:1.05rem 1.1rem;border-top:3px solid var(--accent)}
+.pillar h3{margin:0 0 .4rem;font-size:1rem}
+.pillar p{margin:0;font-size:.92rem;color:var(--text-2)}
+.flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:.6rem;
+  align-items:stretch;margin:1.3rem 0}
+@media (max-width:760px){.flow{grid-template-columns:1fr}.flow .arrow{display:none}}
+.step{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:.95rem 1rem}
+.step .n{font-family:var(--mono);font-size:.72rem;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--accent);display:block;margin-bottom:.35rem}
+.step b{display:block;font-size:.95rem;margin-bottom:.25rem}
+.step p{margin:0;font-size:.86rem;color:var(--text-2)}
+.step code{font-size:.8rem}
+.arrow{display:flex;align-items:center;color:var(--text-3);font-size:1.2rem}
+table.cmp{width:100%;border-collapse:collapse;font-size:.9rem;margin:1rem 0}
+table.cmp th,table.cmp td{text-align:left;padding:.6rem .6rem .6rem 0;
+  border-bottom:1px solid var(--border);vertical-align:top}
+table.cmp th{font-size:.76rem;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--text-3)}
+table.cmp td:last-child,table.cmp th:last-child{background:var(--surface-alt);
+  padding-left:.6rem;font-weight:600}
+.faq details{margin:.55rem 0}
+.faq summary{font-weight:600}
+.faq p{font-size:.93rem;color:var(--text-2);margin:.5rem 0 0}
+.roadmap{list-style:none;padding:0;margin:.8rem 0}
+.roadmap li{display:flex;flex-wrap:wrap;gap:.3rem .6rem;padding:.42rem 0;
+  font-size:.93rem;color:var(--text-2);border-bottom:1px solid var(--border)}
+.roadmap b{color:var(--text);font-weight:600;flex:0 0 170px;max-width:100%}
+@media (max-width:620px){
+  /* A fixed label column cannot share 319px with its description and a tag, and
+     a flex row that will not wrap pushes the whole page sideways. */
+  .roadmap b{flex-basis:100%}
+}
+.tag{display:inline-block;font-family:var(--mono);font-size:.68rem;
+  text-transform:uppercase;letter-spacing:.06em;padding:.12rem .42rem;
+  border-radius:4px;border:1px solid var(--border);color:var(--text-3);
+  white-space:nowrap}
+.tag.live{color:#0a6b0a;border-color:rgba(12,163,12,.4)}
+.status{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:1.05rem 1.15rem;margin:1.2rem 0}
+.status h3{margin:0 0 .5rem;font-size:.82rem;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--text-3);font-family:var(--mono)}
 </style>
 </head>
 <body>
@@ -178,200 +231,146 @@ footer{margin:3.5rem 0 2.5rem;padding-top:1.2rem;border-top:1px solid var(--bord
 
 <header>
   <p class="kicker">PatchProof &middot; open source</p>
-  <h1>The obvious fix passes every check and silently stops working.</h1>
-  <p class="lede">When a service you depend on changes its API, the repair that
-  looks correct is usually the one that quietly loses money. This is an agent that
-  fixes broken integrations by itself, a gate that refuses fixes which only
-  <em>look</em> right, and a benchmark built from 71 real breaking changes that
-  says how well it actually works.</p>
+  <h1>Stop silent API outages before they reach production.</h1>
+  <p class="lede">When a provider changes their API, the repair that looks correct
+  is usually the one that quietly loses money. PatchProof watches third-party
+  contracts, refuses automated fixes that would silently drop a capability, and
+  turns everything it cannot resolve into one precise question.</p>
 
-  <div class="hero">
-    <p class="hero-label">The obvious repair &mdash; stop sending whatever broke &mdash;
-      applied to 71 real breaking changes from Stripe's history:</p>
-    <div class="hero-pair">
-      <span class="hero-num bad">71</span>
-      <span class="hero-sub">of 71 unsafe</span>
-      <span class="hero-arrow">&rarr;</span>
-      <span class="hero-num good">0</span>
-      <span class="hero-sub">behind the gate</span>
-    </div>
-    <p class="hero-cap">Same fix, same cases. The only difference is whether
-      something checked it first. That is the finding: the gate matters more than
-      the agent.</p>
+  <div class="hero-cta">
+    <a class="btn" href="https://github.com/AkshitRampershad/PatchProof">Read the code</a>
+    <a class="btn ghost" href="https://github.com/AkshitRampershad/PatchProof#the-benchmark">Run the benchmark</a>
   </div>
 
-  <div class="grid2">
-    <div class="card proven">
-      <h3>Measured</h3>
-      <ul>
-        <li>Drift detection against Stripe's real published contracts, across 2,506 versions</li>
-        <li>The gate removing every unsafe fix</li>
-        <li>71 real breaking changes, scored reproducibly</li>
-        <li>144 tests</li>
-      </ul>
-    </div>
-    <div class="card unproven">
-      <h3>Not yet proven</h3>
-      <ul>
-        <li>The end-to-end loop runs against a simulator, not a live provider</li>
-        <li>Verification against a real provider sandbox is built but never run &mdash; it needs credentials</li>
-        <li>The best model score comes from a partial run</li>
-      </ul>
-    </div>
+  <div class="trustrow">
+    <span>Open source</span>
+    <span>Runs locally &mdash; no account, no telemetry</span>
+    <span>71 real breaking changes benchmarked</span>
+    <span>144 tests</span>
   </div>
 </header>
 
-<h2>The problem</h2>
-<p>You have software that talks to somebody else's API &mdash; a payment
-processor, a CRM, a data feed. One day they rename a field, tighten a rule, or
-change what a number means. Your integration breaks.</p>
-<p>Someone has to notice, work out what changed, and fix it. That work is
-interrupt-driven and never finishes, because the other end never stops changing.</p>
-<p>The bad case is not the one that breaks loudly. It is the one where your
-request is still perfectly valid and quietly does the wrong thing &mdash; the
-field you were sending is simply gone, so nothing errors, nothing alerts, and
-nobody finds out until the numbers do not add up.</p>
+<h2>The failure nobody is watching for</h2>
+<p>Every safeguard you already have answers one question: <em>did the request
+fail?</em> Contract tests, monitoring, error budgets, alerting &mdash; all of it
+keys off something going wrong loudly.</p>
+<p>The expensive failures are the quiet ones. A provider removes the field you
+were sending. Your request still validates, still returns <code>200 OK</code>,
+and has silently stopped applying the discount. Nothing errors. Nothing alerts.
+You find out from the numbers, weeks later.</p>
 
-<h2>How this is handled today</h2>
-<p>Mostly well enough, which is worth saying plainly. Contract tests catch some
-changes. Monitoring catches more. A disciplined provider announces breaking
-changes in advance &mdash; and Stripe, measured here, ships very few.</p>
-<p>What none of it solves is the silent class. Every existing safeguard answers
-one question: <em>did the request fail?</em> When the answer is no and the
-behaviour is wrong anyway, nothing fires.</p>
+<div class="hero">
+  <p class="hero-label">The obvious repair &mdash; stop sending whatever broke &mdash;
+    applied to 71 real breaking changes from Stripe's published history:</p>
+  <div class="hero-pair">
+    <span class="hero-num bad">71</span>
+    <span class="hero-sub">of 71 unsafe</span>
+    <span class="hero-arrow">&rarr;</span>
+    <span class="hero-num good">0</span>
+    <span class="hero-sub">behind the gate</span>
+  </div>
+  <p class="hero-cap">Same fix, same cases. The only difference is whether
+    something verified it first.</p>
+</div>
 
-<h2>What this does differently</h2>
-<p>The agent watches the
-<button class="term" data-def="The machine-readable description of what a request may contain: fields, types, whether each is required, allowed values. Here it is extracted from the provider's published OpenAPI document.">contract</button>,
-notices a change, and forms a hypothesis about the new correct behaviour. That
-part is unremarkable and several tools do it.</p>
-<p>What matters is what happens next: <strong>a hypothesis is not allowed to
-become behaviour until something outside the agent confirms it.</strong> Three
-tiers, with deliberately different authority.</p>
-<ol>
-  <li><strong>The provider's own contract accepts it.</strong> Free, offline, runs
-  on every candidate. Proves only that the provider will not reject it &mdash; it
-  says nothing about meaning.</li>
-  <li><strong>The provider's sandbox accepted it for real</strong>, catching
-  undocumented rules the contract never expressed.</li>
-  <li><strong>What actually happened</strong> downstream, days later. Not
-  available in advance at all. Every claim about semantic correctness belongs
-  here and nowhere else.</li>
-</ol>
-<p>Between tiers one and two sits the check the whole project exists for. When the
-agent cannot work out where a value went, the easiest fix that passes everything
-is to <em>stop sending it</em>. Valid request,
-<button class="term" data-def="The request still validates, but has stopped doing something it used to do. The failure this project is organised around, because no schema check and no error response can see it.">capability loss</button>.
-So the gate compares what the request used to accomplish against what it
-accomplishes now, and refuses.</p>
-<p>Then it does the thing that makes autonomy tolerable: it asks one specific
-question instead of guessing.</p>
+<h2>Three things it does</h2>
+<div class="pillars">
+  <div class="pillar">
+    <h3>Detects drift early</h3>
+    <p>Reads a provider's published OpenAPI contract and diffs it against the one
+    you integrated against &mdash; including query parameters, nested fields and
+    enum values, which is where half of real breaking changes hide.</p>
+  </div>
+  <div class="pillar">
+    <h3>Refuses unsafe repairs</h3>
+    <p>A proposed fix has to survive verification before it becomes behaviour.
+    The check that matters compares what your request used to accomplish against
+    what it accomplishes now, and blocks anything that quietly stopped doing its
+    job.</p>
+  </div>
+  <div class="pillar">
+    <h3>Asks, instead of guessing</h3>
+    <p>When the contract holds no answer, it produces one specific question
+    naming the field and the operation &mdash; not a ticket saying something
+    broke, and not a confident guess that validates and is wrong.</p>
+  </div>
+</div>
+
+<h2>How it works</h2>
+<div class="flow">
+  <div class="step"><span class="n">1 &middot; Detect</span>
+    <b>Contract changes</b>
+    <p>Stripe removes <code>coupon</code> from <code>POST /v1/customers</code>.
+    No version bump. Your request still validates.</p></div>
+  <div class="arrow">&rarr;</div>
+  <div class="step"><span class="n">2 &middot; Gate</span>
+    <b>Unsafe fix blocked</b>
+    <p>The obvious repair is to stop sending it. The gate sees the capability is
+    gone and refuses to adopt it.</p></div>
+  <div class="arrow">&rarr;</div>
+  <div class="step"><span class="n">3 &middot; Triage</span>
+    <b>One question</b>
+    <p>A single prompt naming exactly what it does not know, answerable in
+    seconds.</p></div>
+</div>
+
 <blockquote>'coupon' no longer appears in the request and its value is not carried
 by any other field. The published contract does not say where it moved. Was this
 capability removed, or does it now go somewhere else in POST /v1/customers?</blockquote>
-<p>Guessing is scored as a failure, not a partial success. A value written into an
-unrelated field validates perfectly and is worse than no change at all, because
-nothing downstream will ever complain.</p>
 
-<h2>What's real and what isn't</h2>
-<p>The section most worth checking, so it is stated rather than implied.</p>
-<p><strong>Real.</strong> The
-<button class="term" data-def="A change to the contract of a service you depend on, made without coordinating with you.">drift</button>
-sensors read OpenAPI contracts a provider actually published. Stripe keeps 2,506
-tagged versions in public git, so every change measured here really happened to
-real callers: 589 operations, about 6,500 contract fields, 1,716 field-level
-changes over three years &mdash; of which only 44 could break an existing caller.</p>
-<p><strong>Real.</strong> The benchmark's 71 cases are mined from that history and
-labelled without human annotation. Two properties are enforced when mining and
-re-checked by the tests: each request must be valid before the change and broken
-after it. A benchmark whose data rots keeps printing numbers while measuring
-nothing.</p>
-<p><strong>Simulated.</strong> The full sense &rarr; hypothesise &rarr; verify
-&rarr; act &rarr; recover loop runs against a partner API written for the purpose.
-That simulator is what lets the delayed-signal path be exercised end to end; a
-real provider's ledger does not disagree with you on demand.</p>
-<p><strong>Built, never run.</strong> Tier two &mdash; verification against a live
-provider sandbox &mdash; needs test-mode credentials. Its HTTP path is covered by
-tests with an injected transport. It has not been pointed at Stripe.</p>
+<h2>Why ungated auto-fixing is dangerous</h2>
+<p>Every row below is measured on the same 71 real breaking changes, not
+estimated. &ldquo;Unsafe&rdquo; means a repair was adopted that is invalid,
+silently dropped a capability, or guessed where the contract held no answer.</p>
 
-<h2>What the numbers say</h2>
-<p>Every row is scored on the same 71 real cases. Two rates, reported separately
-because they trade against each other:
-<strong>adapt</strong> is being correct where the contract holds the answer,
-<strong>ask</strong> is correctly
-<button class="term" data-def="The agent declining to guess, with one specific question. Scored as the correct answer wherever the contract genuinely holds no answer.">escalating</button>
-where it does not.</p>
-
-<div class="scroller"><table class="results">
-  <thead><tr><th>Solver</th><th>Adapt</th><th>Ask</th><th>Unsafe</th></tr></thead>
+<div class="scroller">
+<table class="cmp">
+  <thead><tr><th>On 71 real breaking changes</th><th>Ungated auto-fix</th><th>Through the gate</th></tr></thead>
   <tbody>
-    <tr><td class="solver">do nothing</td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/27</span></div></td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/44</span></div></td>
-      <td><span class="unsafe-n" data-zero="true">0</span></td></tr>
-    <tr><td class="solver">always ask</td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/27</span></div></td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:100%"></div></div><span class="mval">44/44</span></div></td>
-      <td><span class="unsafe-n" data-zero="true">0</span></td></tr>
-    <tr class="hi"><td class="solver">obvious fix, no gate</td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/27</span></div></td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/44</span></div></td>
-      <td><span class="unsafe-n" data-zero="false">71</span></td></tr>
-    <tr class="hi"><td class="solver">obvious fix, gated</td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:0"></div></div><span class="mval">0/27</span></div></td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:100%"></div></div><span class="mval">44/44</span></div></td>
-      <td><span class="unsafe-n" data-zero="true">0</span></td></tr>
-    <tr><td class="solver">agent, pattern-matching</td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:26%"></div></div><span class="mval">7/27</span></div></td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:82%"></div></div><span class="mval">36/44</span></div></td>
-      <td><span class="unsafe-n" data-zero="false">2</span></td></tr>
-    <tr><td class="solver">agent, model-backed *</td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:52%"></div></div><span class="mval">14/27</span></div></td>
-      <td><div class="meter"><div class="track"><div class="fill" style="width:86%"></div></div><span class="mval">38/44</span></div></td>
-      <td><span class="unsafe-n" data-zero="false">5</span></td></tr>
+    <tr><td>Naive repair &mdash; drop the broken field</td><td>71 unsafe</td><td>0 unsafe</td></tr>
+    <tr><td>Pattern-matching agent</td><td>60 unsafe</td><td>2 unsafe</td></tr>
+    <tr><td>Ambiguous cases raised as a question</td><td>0 of 44</td><td>44 of 44</td></tr>
+    <tr><td>Repairs correctly applied</td><td>3 of 27</td><td>7 of 27</td></tr>
   </tbody>
-</table></div>
-<p class="note">* Partial: that run exhausted a free tier's daily token allowance
-and fell back on 32 of 71 cases, so 14/27 is a floor, not a measurement.</p>
-
-<div class="callout">
-  <p><strong>Read the unsafe column first.</strong> It counts fixes that were
-  adopted and are invalid, silently dropped a capability, or guessed where no
-  answer existed. Every other outcome leaves a human able to reason about the
-  situation. An unsafe one looks like success.</p>
+</table>
 </div>
-
-<p><strong>A model roughly doubles adaptation and costs safety.</strong> 7/27 to
-14/27, with gains exactly where pattern-matching is blind. It also produced three
-more unsafe adoptions, all on renames &mdash; plausible destinations that validate
-and are wrong. That is a gate problem rather than a model problem, and it is the
-next thing to fix.</p>
-
-<p><strong>Most real drift is not locally fixable at all.</strong> 44 of the 71
-cases carry no evidence anywhere of where the capability went. Any pitch resting
-on fully unattended repair has to account for that: the realistic ceiling on this
-provider is about 38%, and the rest is an agent asking one good question instead
-of a human reading a changelog.</p>
-
-<div class="callout">
-  <p><strong>And the least flattering finding came from auditing the benchmark,
-  not the agent.</strong> An earlier version of the scorer reported 42% solved.
-  Reading the per-case output showed what it was rewarding:
-  <code>rename coupon &rarr; phone</code>,
-  <code>rename promotion_code &rarr; address.postal_code</code>, and
-  <code>rename coupon &rarr; {customer}</code> &mdash; which writes a coupon code
-  into a path parameter and addresses an entirely different resource. All three
-  validated. All three preserved the value. All three scored as successes. A
-  benchmark that flatters the system it measures is worse than none, because it
-  retires the question.</p>
-</div>
+<p class="note">The gate is the difference, not the cleverness of the agent. A
+model-backed reasoner roughly doubles correct repairs (to 14 of 27 on a partial
+run) and raises unsafe outcomes to 5 &mdash; which is why it ships behind the same
+gate rather than in front of it.</p>
 
 <details>
-  <summary>Where it succeeds and fails, by kind of change</summary>
-  <p class="note">Fully measured run (pattern-matching agent), so the numbers are
-  clean. Every segment is labelled with its count; the table below carries the
-  same figures. The two smallest slices are left unlabelled rather than
-  cramming a digit into 17 pixels.</p>
+  <summary>Full benchmark results, and how the cases were built</summary>
+  <p class="note">71 cases mined from nine windows of Stripe's published history,
+  Nov 2022 to Aug 2026. Labels come from the shape of each change, not from
+  judgement. Two properties are enforced when mining and re-checked by the test
+  suite: each request must be valid before the change and broken after it.</p>
+  <p class="note"><b>Adapt</b> is being correct where the contract holds the
+  answer (27 cases). <b>Ask</b> is correctly raising a question where it does not
+  (44 cases). They are reported separately because a solver that never adapts
+  scores full marks on the second.</p>
+  <div class="scroller">
+  <table class="results">
+    <thead><tr><th>Solver</th><th>Adapt</th><th>Ask</th><th>Unsafe</th></tr></thead>
+    <tbody>
+      <tr><td class="solver">do nothing</td><td class="mval">0/27</td><td class="mval">0/44</td><td><span class="unsafe-n" data-zero="true">0</span></td></tr>
+      <tr><td class="solver">always ask</td><td class="mval">0/27</td><td class="mval">44/44</td><td><span class="unsafe-n" data-zero="true">0</span></td></tr>
+      <tr class="hi"><td class="solver">drop the field, no gate</td><td class="mval">0/27</td><td class="mval">0/44</td><td><span class="unsafe-n" data-zero="false">71</span></td></tr>
+      <tr class="hi"><td class="solver">drop the field, gated</td><td class="mval">0/27</td><td class="mval">44/44</td><td><span class="unsafe-n" data-zero="true">0</span></td></tr>
+      <tr><td class="solver">agent, no gate</td><td class="mval">3/27</td><td class="mval">0/44</td><td><span class="unsafe-n" data-zero="false">60</span></td></tr>
+      <tr><td class="solver">agent, gated</td><td class="mval">7/27</td><td class="mval">36/44</td><td><span class="unsafe-n" data-zero="false">2</span></td></tr>
+      <tr><td class="solver">agent + model, gated *</td><td class="mval">14/27</td><td class="mval">38/44</td><td><span class="unsafe-n" data-zero="false">5</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">* Partial: that run exhausted a free tier's daily token
+  allowance and fell back on 32 of 71 cases, so 14/27 is a floor rather than a
+  measurement.</p>
+
+  <p class="note" style="margin-top:1rem"><b>Where it succeeds and fails, by kind
+  of change</b> &mdash; fully measured run, so the figures are clean. The two
+  smallest slices are unlabelled rather than cramming a digit into 17 pixels; the
+  table carries every number.</p>
   <div class="legend">
     <span><i class="swatch" style="background:var(--good)"></i>Solved</span>
     <span><i class="swatch" style="background:var(--warn)"></i>Asked</span>
@@ -380,36 +379,24 @@ of a human reading a changelog.</p>
   </div>
   <div class="bars">
     <div class="bar-row"><span class="bar-name">removed (38)</span>
-      <div class="bar">
-        <div class="seg" data-role="solved" style="flex:34">34</div>
+      <div class="bar"><div class="seg" data-role="solved" style="flex:34">34</div>
         <div class="seg" data-role="unsolved" style="flex:2" aria-label="2 no answer"></div>
-        <div class="seg" data-role="unsafe" style="flex:2" aria-label="2 unsafe"></div>
-      </div></div>
+        <div class="seg" data-role="unsafe" style="flex:2" aria-label="2 unsafe"></div></div></div>
     <div class="bar-row"><span class="bar-name">rename (18)</span>
-      <div class="bar">
-        <div class="seg" data-role="solved" style="flex:5">5</div>
+      <div class="bar"><div class="seg" data-role="solved" style="flex:5">5</div>
         <div class="seg" data-role="escalated" style="flex:8">8</div>
-        <div class="seg" data-role="unsolved" style="flex:5">5</div>
-      </div></div>
+        <div class="seg" data-role="unsolved" style="flex:5">5</div></div></div>
     <div class="bar-row"><span class="bar-name">type changed (5)</span>
-      <div class="bar">
-        <div class="seg" data-role="escalated" style="flex:1">1</div>
-        <div class="seg" data-role="unsolved" style="flex:4">4</div>
-      </div></div>
+      <div class="bar"><div class="seg" data-role="escalated" style="flex:1">1</div>
+        <div class="seg" data-role="unsolved" style="flex:4">4</div></div></div>
     <div class="bar-row"><span class="bar-name">enum narrowed (5)</span>
-      <div class="bar">
-        <div class="seg" data-role="solved" style="flex:2">2</div>
-        <div class="seg" data-role="unsolved" style="flex:3">3</div>
-      </div></div>
+      <div class="bar"><div class="seg" data-role="solved" style="flex:2">2</div>
+        <div class="seg" data-role="unsolved" style="flex:3">3</div></div></div>
     <div class="bar-row"><span class="bar-name">newly required (4)</span>
-      <div class="bar">
-        <div class="seg" data-role="solved" style="flex:2">2</div>
-        <div class="seg" data-role="unsolved" style="flex:2">2</div>
-      </div></div>
+      <div class="bar"><div class="seg" data-role="solved" style="flex:2">2</div>
+        <div class="seg" data-role="unsolved" style="flex:2">2</div></div></div>
     <div class="bar-row"><span class="bar-name">length tightened (1)</span>
-      <div class="bar">
-        <div class="seg" data-role="unsolved" style="flex:1">1</div>
-      </div></div>
+      <div class="bar"><div class="seg" data-role="unsolved" style="flex:1">1</div></div></div>
   </div>
   <table>
     <thead><tr><th>Kind</th><th>n</th><th>Solved</th><th>Asked</th><th>No answer</th><th>Unsafe</th></tr></thead>
@@ -422,23 +409,83 @@ of a human reading a changelog.</p>
       <tr><td>length tightened</td><td>1</td><td>0</td><td>0</td><td>1</td><td>0</td></tr>
     </tbody>
   </table>
+  <p class="note" style="margin-top:.8rem">44 of the 71 cases carry no evidence
+  anywhere of where the capability went, so the realistic ceiling for unattended
+  repair against this provider is about 38%. The rest is the agent asking one good
+  question instead of an engineer reading a changelog.</p>
 </details>
 
-<h2>Run it</h2>
-<p>No dependencies, no API key, about a minute.</p>
+<h2>Where PatchProof is today</h2>
+<div class="status">
+  <h3>Working now</h3>
+  <ul class="roadmap">
+    <li><b>Drift detection</b> Reads any OpenAPI 3 contract. Benchmarked against 2,506 published versions of Stripe's API. <span class="tag live">live</span></li>
+    <li><b>Schema verification</b> Validates a proposed repair against the provider's own published contract. <span class="tag live">live</span></li>
+    <li><b>Capability check</b> Blocks repairs that stop the request doing what it did. <span class="tag live">live</span></li>
+    <li><b>Question generation</b> One precise prompt per unresolvable change. <span class="tag live">live</span></li>
+    <li><b>Benchmark</b> 71 labelled real breaking changes; scores any solver. <span class="tag live">live</span></li>
+  </ul>
+  <h3 style="margin-top:1.1rem">Built, not yet proven</h3>
+  <ul class="roadmap">
+    <li><b>Sandbox verification</b> Sending a candidate repair to a provider's test environment. Code and tests exist; it has never been run against a live provider. <span class="tag">needs credentials</span></li>
+    <li><b>Downstream reconciliation</b> Catching a repair that validated and was still wrong, from what happened later. Exercised against a simulator only. <span class="tag">simulated</span></li>
+  </ul>
+  <h3 style="margin-top:1.1rem">Not built</h3>
+  <ul class="roadmap">
+    <li><b>GitHub Action / PR bot</b> Blocking a breaking change during code review. <span class="tag">planned</span></li>
+    <li><b>Continuous monitoring</b> Watching a vendor's contracts in the background. <span class="tag">planned</span></li>
+    <li><b>Slack &amp; Jira triage</b> Delivering the question where the team already works. <span class="tag">planned</span></li>
+    <li><b>MCP guardrail</b> Running as a safety gate behind AI coding tools. <span class="tag">planned</span></li>
+  </ul>
+</div>
+<p class="note">This section exists because the product's entire argument is that
+things which merely look correct are the dangerous ones. A roadmap presented as a
+feature list would be the same mistake PatchProof is built to catch.</p>
+
+<h2>Questions</h2>
+<div class="faq">
+  <details><summary>Does it change my code automatically?</summary>
+  <p>No. PatchProof decides whether a proposed repair is safe; it does not deploy
+  one. A verified repair is a change you review, and an unresolvable one becomes
+  a question rather than a guess.</p></details>
+
+  <details><summary>How does it stop a model from inventing a fix?</summary>
+  <p>Nothing a model proposes is trusted. A proposal is a hypothesis, and it has
+  to pass the provider's own published contract and the capability check before
+  it counts as a repair. Two further tiers exist &mdash; the provider's sandbox,
+  and what actually happened downstream &mdash; and their status is stated above
+  rather than implied.</p></details>
+
+  <details><summary>Which providers does it work with?</summary>
+  <p>Any provider publishing an OpenAPI 3 contract. The benchmark is built from
+  Stripe's version history because Stripe publishes 2,506 tagged versions
+  publicly, which makes the drift real and checkable. A GitHub preset ships too.
+  Other providers should work and have not been benchmarked &mdash; that is a
+  claim worth testing rather than printing.</p></details>
+
+  <details><summary>Does my data leave my machine?</summary>
+  <p>No. The default reasoner is offline pattern matching with no dependencies and
+  no telemetry. Contracts are fetched from providers' public specs. Only if you
+  explicitly enable a model tier does anything go to that provider, and you
+  choose which.</p></details>
+
+  <details><summary>How long does it take to try?</summary>
+  <p>Clone it and run one command. No account, no install, no key.</p></details>
+</div>
+
 <pre>git clone https://github.com/AkshitRampershad/PatchProof &amp;&amp; cd PatchProof
-python3 run_demo.py                          <span style="color:var(--text-3)"># watch it adapt</span>
-python3 -m bench.run                         <span style="color:var(--text-3)"># score it on real drift</span>
-python3 -m unittest discover -s tests -t .   <span style="color:var(--text-3)"># 144 tests</span></pre>
+python3 -m bench.run                         <span style="color:var(--text-3)"># score it on 71 real breaking changes</span>
+python3 run_demo.py                          <span style="color:var(--text-3)"># watch it adapt, no API key needed</span></pre>
 
 <div class="cta">
   <a class="btn" href="https://github.com/AkshitRampershad/PatchProof">Read the code</a>
-  <a class="btn ghost" href="https://github.com/AkshitRampershad/PatchProof#what-the-numbers-say">Full results</a>
+  <a class="btn ghost" href="https://github.com/AkshitRampershad/PatchProof#the-benchmark">See the full benchmark</a>
 </div>
 
 <footer>
-  <p>Built by Akshit Rampershad. The benchmark data is mined from Stripe's public
-  OpenAPI history; this project is not affiliated with Stripe.</p>
+  <p>Built by Akshit Rampershad. Benchmark data is mined from Stripe's public
+  OpenAPI history; this project is not affiliated with Stripe, and the providers
+  named on this page are examples of published contracts, not partnerships.</p>
 </footer>
 
 </main>
