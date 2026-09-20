@@ -109,19 +109,26 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--mine", action="store_true", help="re-mine, then write --cases")
     args = ap.parse_args(argv)
 
+    # Under --json stdout carries the JSON and nothing else, so a caller can
+    # pipe it. The notes and warnings still have to be seen, so they go to
+    # stderr rather than being dropped.
+    def say(*a, **kw):
+        kw.setdefault("file", sys.stderr if args.json else sys.stdout)
+        print(*a, **kw)
+
     if args.mine:
         case_set = mine(DEFAULT_WINDOWS, log=print)
         path = case_set.save(args.cases)
-        print(f"\nmined {len(case_set)} cases -> {path}")
+        say(f"\nmined {len(case_set)} cases -> {path}")
     else:
         case_set = CaseSet.load(args.cases)
 
     kinds = case_set.by_kind()
-    print(f"\n{len(case_set)} real drift cases from {case_set.provider}, "
-          f"{len(case_set.contracts)} contracts")
-    print("  " + "  ".join(f"{k}={len(v)}" for k, v in
-                           sorted(kinds.items(), key=lambda kv: -len(kv[1]))))
-    print()
+    say(f"\n{len(case_set)} real drift cases from {case_set.provider}, "
+        f"{len(case_set.contracts)} contracts")
+    say("  " + "  ".join(f"{k}={len(v)}" for k, v in
+                         sorted(kinds.items(), key=lambda kv: -len(kv[1]))))
+    say()
 
     specs = args.solver or LADDER
     solvers = [build_solver(s) for s in specs]
@@ -132,8 +139,8 @@ def main(argv: list[str] | None = None) -> int:
         unavailable = (reasoner.available() if hasattr(reasoner, "available")
                        else getattr(reasoner, "last_error", None))
         if reasoner is not None and unavailable:
-            print(f"  note: {solver.name} is unavailable ({unavailable}); "
-                  f"its hypotheses come from the heuristic fallback")
+            say(f"  note: {solver.name} is unavailable ({unavailable}); "
+                f"its hypotheses come from the heuristic fallback")
     reports = []
     for solver in solvers:
         reports.append(scoring.run(case_set, solver,
@@ -149,17 +156,29 @@ def main(argv: list[str] | None = None) -> int:
         if not degraded:
             continue
         waits = getattr(reasoner, "rate_limit_waits", 0)
-        print(f"\n  WARNING: {report.solver} fell back to heuristics on "
-              f"{degraded}/{report.total} cases"
-              + (f" after {waits} rate-limit waits" if waits else "")
-              + f" (last error: {getattr(reasoner, 'last_error', None)}).")
-        print("  This row is NOT a clean measurement of that model. Re-run with a "
-              "higher rate limit,")
-        print("  or a paid tier, before quoting the number.")
+        say(f"\n  WARNING: {report.solver} fell back to heuristics on "
+            f"{degraded}/{report.total} cases"
+            + (f" after {waits} rate-limit waits" if waits else "")
+            + f" (last error: {getattr(reasoner, 'last_error', None)}).")
+        say("  This row is NOT a clean measurement of that model. Re-run with a "
+            "higher rate limit,")
+        say("  or a paid tier, before quoting the number.")
 
     if args.json:
-        print(json.dumps({"cases": len(case_set),
-                          "reports": [r.as_dict() for r in reports]}, indent=2))
+        # Whether a row is quotable is part of the result, not a note on the
+        # side: a reader parsing this should not have to scrape stderr to find
+        # out that the model answered for only half the cases.
+        rows = []
+        for solver, report in zip(solvers, reports):
+            reasoner = getattr(solver, "reasoner", None)
+            row = report.as_dict()
+            fallbacks = getattr(reasoner, "fallbacks", 0)
+            row["fallbacks"] = fallbacks
+            row["rate_limit_waits"] = getattr(reasoner, "rate_limit_waits", 0)
+            row["last_error"] = getattr(reasoner, "last_error", None)
+            row["clean"] = not fallbacks
+            rows.append(row)
+        print(json.dumps({"cases": len(case_set), "reports": rows}, indent=2))
         return 0
 
     _print_table(reports)
