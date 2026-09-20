@@ -172,6 +172,44 @@ p code,li code{background:var(--surface-alt);padding:.1rem .32rem;border-radius:
 footer{margin:3.5rem 0 2.5rem;padding-top:1.2rem;border-top:1px solid var(--border);
   font-size:.86rem;color:var(--text-3)}
 
+
+/* ---- playground ---- */
+.pg{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:1.1rem 1.15rem;margin:1.2rem 0}
+.pg-presets{display:flex;flex-wrap:wrap;gap:.45rem;margin:0 0 .9rem}
+.chip{font:inherit;font-size:.8rem;font-family:var(--mono);padding:.3rem .6rem;
+  border-radius:20px;border:1px solid var(--border);background:transparent;
+  color:var(--text-2);cursor:pointer}
+.chip:hover,.chip:focus-visible{border-color:var(--accent);color:var(--accent)}
+.pg-io{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:700px){.pg-io{grid-template-columns:1fr}}
+.pg-io label{display:block;font-family:var(--mono);font-size:.74rem;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);
+  margin:0 0 .3rem}
+.pg-io textarea{width:100%;min-height:190px;resize:vertical;font-family:var(--mono);
+  font-size:.76rem;line-height:1.5;padding:.7rem .8rem;border-radius:9px;
+  border:1px solid var(--border);background:var(--bg);color:var(--text)}
+.pg-io textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.pg-run{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin:.9rem 0 0}
+.pg-op{font-family:var(--mono);font-size:.78rem;color:var(--text-3)}
+.pg-out{margin:1rem 0 0;padding-top:.9rem;border-top:1px solid var(--border)}
+.pg-sig{display:flex;flex-wrap:wrap;gap:.4rem;margin:.5rem 0 .9rem}
+.sig{font-family:var(--mono);font-size:.73rem;padding:.2rem .5rem;border-radius:5px;
+  border:1px solid var(--border);color:var(--text-2)}
+.sig[data-impact="breaking"]{border-color:var(--crit);color:var(--crit)}
+.sig[data-impact="cosmetic"]{opacity:.7}
+.verdict{border-radius:10px;padding:.9rem 1rem;border:1px solid var(--border)}
+.verdict[data-tier="needs_human"]{border-left:3px solid var(--warn);background:var(--surface-alt)}
+.verdict[data-tier="schema"]{border-left:3px solid var(--good);background:var(--surface-alt)}
+.verdict[data-tier="rejected"]{border-left:3px solid var(--none);background:var(--surface-alt)}
+.verdict h4{margin:0 0 .4rem;font-size:.76rem;font-family:var(--mono);
+  letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+.verdict .q{font-size:.95rem;margin:0}
+.verdict code{font-size:.85rem}
+.pg-err{color:var(--crit);font-size:.86rem;margin:.6rem 0 0}
+.pg-tried{margin:.8rem 0 0;font-size:.8rem;color:var(--text-3)}
+.pg-tried li{font-family:var(--mono);font-size:.74rem;margin:.15rem 0}
+
 /* ---- commercial layout additions ---- */
 .hero-cta{display:flex;flex-wrap:wrap;gap:.7rem;margin:1.4rem 0 1.1rem}
 .trustrow{display:flex;flex-wrap:wrap;gap:.5rem .75rem;margin:1.1rem 0 0;
@@ -318,6 +356,172 @@ You find out from the numbers, weeks later.</p>
 by any other field. The published contract does not say where it moved. Was this
 capability removed, or does it now go somewhere else in POST /v1/customers?</blockquote>
 
+<h2>Try it on a change of your own</h2>
+<p>Paste two versions of an OpenAPI operation. This runs the real engine &mdash; a
+port of the Python in <code>sell/real/</code>, held to it by a conformance test
+that puts the same 71 benchmark cases through both and fails if they disagree.
+Nothing is sent anywhere; it runs in this page.</p>
+
+<div class="pg">
+  <div class="pg-presets" id="pg-presets">
+    <button class="chip" type="button" data-preset="coupon">Stripe removes <code>coupon</code></button>
+    <button class="chip" type="button" data-preset="rename">A field is renamed</button>
+    <button class="chip" type="button" data-preset="enum">An enum loses a value</button>
+    <button class="chip" type="button" data-preset="required">A new required field</button>
+  </div>
+
+  <div class="pg-io">
+    <div>
+      <label for="pg-before">Before &mdash; the contract you integrated against</label>
+      <textarea id="pg-before" spellcheck="false" aria-describedby="pg-op"></textarea>
+    </div>
+    <div>
+      <label for="pg-after">After &mdash; the provider's new contract</label>
+      <textarea id="pg-after" spellcheck="false" aria-describedby="pg-op"></textarea>
+    </div>
+  </div>
+
+  <div class="pg-run">
+    <button class="btn" type="button" id="pg-go">Analyse</button>
+    <span class="pg-op" id="pg-op"></span>
+  </div>
+
+  <div class="pg-out" id="pg-out" aria-live="polite"></div>
+</div>
+
+<script src="playground.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var before = $("pg-before"), after = $("pg-after"), out = $("pg-out"), op = $("pg-op");
+
+  function spec(version, props, required, params) {
+    var o = { info: { version: version }, paths: { "/v1/customers": { post: {
+      requestBody: { content: { "application/x-www-form-urlencoded": { schema: {
+        type: "object", properties: props } } } } } } } };
+    var sch = o.paths["/v1/customers"].post.requestBody
+      .content["application/x-www-form-urlencoded"].schema;
+    if (required) sch.required = required;
+    if (params) o.paths["/v1/customers"].post.parameters = params;
+    return JSON.stringify(o, null, 1);
+  }
+
+  var PRESETS = {
+    coupon: [
+      spec("2025-02-24", { email: { type: "string" },
+        coupon: { type: "string", description: "Promotion code to apply." } }),
+      spec("2025-08-27", { email: { type: "string" } })
+    ],
+    rename: [
+      spec("2024-01-01", { email: { type: "string" },
+        rendering_options: { type: "string", description: "How the invoice renders." } }),
+      spec("2024-06-01", { email: { type: "string" },
+        rendering: { type: "string", description: "How the invoice renders." } })
+    ],
+    enum: [
+      spec("2024-01-01", { email: { type: "string" },
+        ui_mode: { type: "string", enum: ["custom", "embedded", "hosted"] } }),
+      spec("2024-06-01", { email: { type: "string" },
+        ui_mode: { type: "string", enum: ["elements", "embedded_page", "hosted_page"] } })
+    ],
+    required: [
+      spec("2024-01-01", { email: { type: "string" } }),
+      spec("2024-06-01", { email: { type: "string" },
+        currency: { type: "string", enum: ["usd", "eur"] } }, ["currency"])
+    ]
+  };
+
+  function firstOperation(doc) {
+    var paths = doc.paths || {};
+    for (var path in paths)
+      for (var method in paths[path])
+        if (["get", "post", "put", "patch", "delete"].indexOf(method) > -1)
+          return { method: method, path: path };
+    return null;
+  }
+
+  function esc(t) {
+    return String(t).replace(/[&<>]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; });
+  }
+
+  function run() {
+    out.innerHTML = ""; op.textContent = "";
+    var a, b;
+    try { a = JSON.parse(before.value); b = JSON.parse(after.value); }
+    catch (e) {
+      out.innerHTML = '<p class="pg-err">That is not valid JSON: ' + esc(e.message) + "</p>";
+      return;
+    }
+    var target = firstOperation(a) || firstOperation(b);
+    if (!target) {
+      out.innerHTML = '<p class="pg-err">No operation found. Each document needs a ' +
+        '<code>paths</code> entry with a method such as <code>post</code>.</p>';
+      return;
+    }
+    var r;
+    try { r = PatchProof.analyse(a, b, target.method, target.path, null); }
+    catch (e) {
+      out.innerHTML = '<p class="pg-err">' + esc(e.message) + "</p>"; return;
+    }
+    op.textContent = r.newContract.operation + "  \u00b7  " +
+      Object.keys(r.oldContract.fields).length + " fields \u2192 " +
+      Object.keys(r.newContract.fields).length;
+
+    var html = "";
+    if (!r.signals.length) {
+      html += "<p>No change in this operation's request contract.</p>";
+      out.innerHTML = html; return;
+    }
+    html += "<p style=\"margin:0 0 .2rem\"><b>" + r.signals.length + " change" +
+      (r.signals.length === 1 ? "" : "s") + " detected</b></p><div class=\"pg-sig\">";
+    r.signals.forEach(function (s) {
+      html += '<span class="sig" data-impact="' + s.detail.impact + '">' +
+        esc(s.kind) + " &middot; " + esc(s.detail.field) + "</span>";
+    });
+    html += "</div>";
+
+    var v = r.result;
+    if (v.adoptable) {
+      html += '<div class="verdict" data-tier="schema"><h4>Verified repair</h4>' +
+        "<p class=\"q\">The contract holds the answer, so PatchProof repairs it: " +
+        "<code>" + esc(PatchProof.describePatch(v.patch)) + "</code>. The request " +
+        "still expresses everything it expressed before.</p></div>";
+    } else if (v.question) {
+      html += '<div class="verdict" data-tier="needs_human"><h4>Refused &mdash; ' +
+        "asks one question</h4><p class=\"q\">" + esc(v.question) + "</p></div>";
+    } else {
+      html += '<div class="verdict" data-tier="rejected"><h4>No safe repair found</h4>' +
+        "<p class=\"q\">Nothing proposed survived verification, and the failures do " +
+        "not point at a single field, so there is no one question worth asking.</p></div>";
+    }
+
+    if (v.rejected && v.rejected.length) {
+      html += '<details class="pg-tried"><summary>What it tried and rejected (' +
+        v.rejected.length + ")</summary><ul>";
+      v.rejected.forEach(function (pair) {
+        html += "<li>" + esc(pair[0]) + " &mdash; " + esc(pair[1]) + "</li>";
+      });
+      html += "</ul></details>";
+    }
+    out.innerHTML = html;
+  }
+
+  $("pg-presets").addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-preset]");
+    if (!btn) return;
+    var pair = PRESETS[btn.getAttribute("data-preset")];
+    before.value = pair[0]; after.value = pair[1]; run();
+  });
+  $("pg-go").addEventListener("click", run);
+
+  before.value = PRESETS.coupon[0];
+  after.value = PRESETS.coupon[1];
+  run();
+})();
+</script>
+
 <h2>Why ungated auto-fixing is dangerous</h2>
 <p>Every row below is measured on the same 71 real breaking changes, not
 estimated. &ldquo;Unsafe&rdquo; means a repair was adopted that is invalid,
@@ -328,7 +532,7 @@ silently dropped a capability, or guessed where the contract held no answer.</p>
   <thead><tr><th>On 71 real breaking changes</th><th>Ungated auto-fix</th><th>Through the gate</th></tr></thead>
   <tbody>
     <tr><td>Naive repair &mdash; drop the broken field</td><td>71 unsafe</td><td>0 unsafe</td></tr>
-    <tr><td>Pattern-matching agent</td><td>60 unsafe</td><td>2 unsafe</td></tr>
+    <tr><td>Pattern-matching agent</td><td>58 unsafe</td><td>2 unsafe</td></tr>
     <tr><td>Ambiguous cases raised as a question</td><td>0 of 44</td><td>44 of 44</td></tr>
     <tr><td>Repairs correctly applied</td><td>3 of 27</td><td>7 of 27</td></tr>
   </tbody>
@@ -357,8 +561,8 @@ gate rather than in front of it.</p>
       <tr><td class="solver">always ask</td><td class="mval">0/27</td><td class="mval">44/44</td><td><span class="unsafe-n" data-zero="true">0</span></td></tr>
       <tr class="hi"><td class="solver">drop the field, no gate</td><td class="mval">0/27</td><td class="mval">0/44</td><td><span class="unsafe-n" data-zero="false">71</span></td></tr>
       <tr class="hi"><td class="solver">drop the field, gated</td><td class="mval">0/27</td><td class="mval">44/44</td><td><span class="unsafe-n" data-zero="true">0</span></td></tr>
-      <tr><td class="solver">agent, no gate</td><td class="mval">3/27</td><td class="mval">0/44</td><td><span class="unsafe-n" data-zero="false">60</span></td></tr>
-      <tr><td class="solver">agent, gated</td><td class="mval">7/27</td><td class="mval">36/44</td><td><span class="unsafe-n" data-zero="false">2</span></td></tr>
+      <tr><td class="solver">agent, no gate</td><td class="mval">3/27</td><td class="mval">0/44</td><td><span class="unsafe-n" data-zero="false">58</span></td></tr>
+      <tr><td class="solver">agent, gated</td><td class="mval">7/27</td><td class="mval">35/44</td><td><span class="unsafe-n" data-zero="false">2</span></td></tr>
       <tr><td class="solver">agent + model, gated *</td><td class="mval">14/27</td><td class="mval">38/44</td><td><span class="unsafe-n" data-zero="false">5</span></td></tr>
     </tbody>
   </table>

@@ -123,7 +123,7 @@ noop                             0/27    0/44       0    100%
 escalate-always                  0/27   44/44       0    100%
 drop-ungated                     0/27    0/44      71      0%
 drop-gated                       0/27   44/44       0    100%
-agent-heuristic                  7/27   36/44       2     97%
+agent-heuristic                  7/27   35/44       2     97%
 agent-groq:openai/gpt-oss-120b  14/27   38/44       5     93%   * partial
 ```
 
@@ -348,8 +348,8 @@ noop                             0/27    0/44       0    100%
 escalate-always                  0/27   44/44       0    100%
 drop-ungated                     0/27    0/44      71      0%
 drop-gated                       0/27   44/44       0    100%
-agent-heuristic-ungated          3/27    0/44      60     15%
-agent-heuristic                  7/27   36/44       2     97%
+agent-heuristic-ungated          3/27    0/44      58     18%
+agent-heuristic                  7/27   35/44       2     97%
 agent-groq:openai/gpt-oss-120b  14/27   38/44       5     93%   * partial
 ```
 
@@ -372,7 +372,7 @@ unsafe ungated, 2 gated. Nothing else in this repository moves a number that far
 
 **The heuristic reasoner barely earns its place.** It adapts correctly on 7 of 27
 solvable cases, and it asks correctly less often than a solver that does nothing
-but ask (36/44 against 44/44). Its entire contribution over the trivial floor is
+but ask (35/44 against 44/44). Its entire contribution over the trivial floor is
 7 adaptations — real, but a long way from a system that maintains an integration
 by itself.
 

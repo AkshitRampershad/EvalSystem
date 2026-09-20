@@ -93,7 +93,12 @@ class HeuristicReasoner:
             fld = d.get("field")
             if not fld:
                 return out
-            if d.get("kind") == "field_added" and not (d.get("spec") or {}).get("required"):
+            # `kind` lives on the signal, never in its detail, so the original
+            # `d.get("kind")` was always None and this guard never fired: the
+            # reasoner proposed a fix for every newly added field, optional ones
+            # included, which is the opposite of what the comment above promises.
+            # Found by conformance-testing the browser port against this code.
+            if s.kind == "field_added" and not (d.get("spec") or {}).get("required"):
                 return out
             # If we are actively dropping a field the contract now demands, the
             # fix is to stop dropping it -- not to invent a value for it.
