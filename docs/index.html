@@ -219,13 +219,16 @@ footer{margin:3.5rem 0 2.5rem;padding-top:1.2rem;border-top:1px solid var(--bord
 .chip:hover,.chip:focus-visible{border-color:var(--accent);color:var(--accent)}
 .pg-io{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width:700px){.pg-io{grid-template-columns:1fr}}
-.pg-io label{display:block;font-family:var(--mono);font-size:.74rem;
+.pg-io label,.pg-payload label{display:block;font-family:var(--mono);font-size:.74rem;
   letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);
   margin:0 0 .3rem}
-.pg-io textarea{width:100%;min-height:190px;resize:vertical;font-family:var(--mono);
+.pg-io textarea,.pg-payload textarea{width:100%;min-height:190px;resize:vertical;font-family:var(--mono);
   font-size:.76rem;line-height:1.5;padding:.7rem .8rem;border-radius:9px;
   border:1px solid var(--border);background:var(--bg);color:var(--text)}
-.pg-io textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.pg-io textarea:focus-visible,.pg-payload textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.pg-payload{margin:.9rem 0 0}
+.pg-payload textarea{min-height:5.5rem}
+.pg-hint{font-size:.78rem;color:var(--text-3);margin:.35rem 0 0}
 .pg-run{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin:.9rem 0 0}
 .pg-op{font-family:var(--mono);font-size:.78rem;color:var(--text-3)}
 .pg-out{margin:1rem 0 0;padding-top:.9rem;border-top:1px solid var(--border)}
@@ -234,7 +237,14 @@ footer{margin:3.5rem 0 2.5rem;padding-top:1.2rem;border-top:1px solid var(--bord
   border:1px solid var(--border);color:var(--text-2)}
 .sig[data-impact="breaking"]{border-color:var(--crit);color:var(--crit)}
 .sig[data-impact="cosmetic"]{opacity:.7}
+.pg-compare{display:grid;gap:10px;grid-template-columns:1fr 1fr;margin:.2rem 0 0}
+@media (max-width:700px){.pg-compare{grid-template-columns:1fr}}
 .verdict{border-radius:10px;padding:.9rem 1rem;border:1px solid var(--border)}
+.verdict[data-ungated]{background:var(--surface-alt)}
+.verdict[data-ungated="silent"]{border-left:3px solid var(--crit)}
+.verdict[data-ungated="rejected"]{border-left:3px solid var(--warn)}
+.verdict[data-ungated="safe"]{border-left:3px solid var(--good)}
+.verdict[data-ungated="none"]{border-left:3px solid var(--none)}
 .verdict[data-tier="needs_human"]{border-left:3px solid var(--warn);background:var(--surface-alt)}
 .verdict[data-tier="schema"]{border-left:3px solid var(--good);background:var(--surface-alt)}
 .verdict[data-tier="rejected"]{border-left:3px solid var(--none);background:var(--surface-alt)}
@@ -393,9 +403,12 @@ by any other field. The published contract does not say where it moved. Was this
 capability removed, or does it now go somewhere else in POST /v1/customers?</blockquote>
 
 <h2>Try it on a change of your own</h2>
-<p>Paste two versions of an OpenAPI operation. This runs the real engine &mdash; a
-port of the Python in <code>sell/real/</code>, held to it by a conformance test
-that puts the same 71 benchmark cases through both and fails if they disagree.
+<p>Paste two versions of an OpenAPI operation, and optionally the request you
+actually send. You get two answers side by side: what an auto-fixer with no gate
+would ship, and what PatchProof does. This runs the real engine &mdash; a port of
+the Python in <code>sell/real/</code>, held to it by a conformance test that puts
+the same 71 benchmark cases through both and fails if they disagree on the
+signals, the proposals, the verdict, the question, or either answer below.
 Nothing is sent anywhere; it runs in this page.</p>
 
 <div class="pg">
@@ -417,6 +430,15 @@ Nothing is sent anywhere; it runs in this page.</p>
     </div>
   </div>
 
+  <div class="pg-payload">
+    <label for="pg-req">The request you send &mdash; optional</label>
+    <textarea id="pg-req" spellcheck="false" aria-describedby="pg-req-help"></textarea>
+    <p class="pg-hint" id="pg-req-help">Leave this blank and PatchProof invents a
+    request using tracer values, which is enough to tell whether a repair keeps
+    expressing them. Paste your real one and the questions it asks quote your
+    actual values.</p>
+  </div>
+
   <div class="pg-run">
     <button class="btn" type="button" id="pg-go">Analyse</button>
     <span class="pg-op" id="pg-op"></span>
@@ -430,7 +452,8 @@ Nothing is sent anywhere; it runs in this page.</p>
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
-  var before = $("pg-before"), after = $("pg-after"), out = $("pg-out"), op = $("pg-op");
+  var before = $("pg-before"), after = $("pg-after"), req = $("pg-req"),
+      out = $("pg-out"), op = $("pg-op");
 
   function spec(version, props, required, params) {
     var o = { info: { version: version }, paths: { "/v1/customers": { post: {
@@ -443,28 +466,34 @@ Nothing is sent anywhere; it runs in this page.</p>
     return JSON.stringify(o, null, 1);
   }
 
+  function payload(o) { return JSON.stringify(o, null, 1); }
+
   var PRESETS = {
     coupon: [
       spec("2025-02-24", { email: { type: "string" },
         coupon: { type: "string", description: "Promotion code to apply." } }),
-      spec("2025-08-27", { email: { type: "string" } })
+      spec("2025-08-27", { email: { type: "string" } }),
+      payload({ email: "ada@example.com", coupon: "LAUNCH20" })
     ],
     rename: [
       spec("2024-01-01", { email: { type: "string" },
         rendering_options: { type: "string", description: "How the invoice renders." } }),
       spec("2024-06-01", { email: { type: "string" },
-        rendering: { type: "string", description: "How the invoice renders." } })
+        rendering: { type: "string", description: "How the invoice renders." } }),
+      payload({ email: "ada@example.com", rendering_options: "auto" })
     ],
     enum: [
       spec("2024-01-01", { email: { type: "string" },
         ui_mode: { type: "string", enum: ["custom", "embedded", "hosted"] } }),
       spec("2024-06-01", { email: { type: "string" },
-        ui_mode: { type: "string", enum: ["elements", "embedded_page", "hosted_page"] } })
+        ui_mode: { type: "string", enum: ["elements", "embedded_page", "hosted_page"] } }),
+      payload({ email: "ada@example.com", ui_mode: "custom" })
     ],
     required: [
       spec("2024-01-01", { email: { type: "string" } }),
       spec("2024-06-01", { email: { type: "string" },
-        currency: { type: "string", enum: ["usd", "eur"] } }, ["currency"])
+        currency: { type: "string", enum: ["usd", "eur"] } }, ["currency"]),
+      payload({ email: "ada@example.com" })
     ]
   };
 
@@ -490,6 +519,20 @@ Nothing is sent anywhere; it runs in this page.</p>
       out.innerHTML = '<p class="pg-err">That is not valid JSON: ' + esc(e.message) + "</p>";
       return;
     }
+    var given = null;
+    if (req.value.trim()) {
+      try { given = JSON.parse(req.value); }
+      catch (e) {
+        out.innerHTML = '<p class="pg-err">The request is not valid JSON: ' +
+          esc(e.message) + "</p>";
+        return;
+      }
+      if (!given || typeof given !== "object" || Array.isArray(given)) {
+        out.innerHTML = '<p class="pg-err">The request must be a JSON object of ' +
+          "field names to values.</p>";
+        return;
+      }
+    }
     var target = firstOperation(a) || firstOperation(b);
     if (!target) {
       out.innerHTML = '<p class="pg-err">No operation found. Each document needs a ' +
@@ -497,12 +540,13 @@ Nothing is sent anywhere; it runs in this page.</p>
       return;
     }
     var r;
-    try { r = PatchProof.analyse(a, b, target.method, target.path, null); }
+    try { r = PatchProof.analyse(a, b, target.method, target.path, given); }
     catch (e) {
       out.innerHTML = '<p class="pg-err">' + esc(e.message) + "</p>"; return;
     }
-    op.textContent = r.newContract.operation + "  \u00b7  " +
-      Object.keys(r.oldContract.fields).length + " fields \u2192 " +
+    var nOld = Object.keys(r.oldContract.fields).length;
+    op.textContent = r.newContract.operation + "  \u00b7  " + nOld +
+      (nOld === 1 ? " field \u2192 " : " fields \u2192 ") +
       Object.keys(r.newContract.fields).length;
 
     var html = "";
@@ -518,20 +562,57 @@ Nothing is sent anywhere; it runs in this page.</p>
     });
     html += "</div>";
 
+    if (r.synthesised) {
+      /* The synthesiser mirrors bench/mine.py: path parameters, required fields,
+         and the field the change touches. A purely additive change leaves it
+         with nothing to build from, which is worth saying rather than printing
+         an empty object and looking broken. */
+      html += '<p class="pg-hint" style="margin:0 0 .8rem">' + (
+        Object.keys(r.payload).length
+          ? "No request given, so this ran against an invented one: <code>" +
+            esc(JSON.stringify(r.payload)) + "</code>"
+          : "No request given, and the old contract has no required fields to " +
+            "build one from, so this ran against an empty request. Paste yours " +
+            "to check what you actually send.") + "</p>";
+    }
+
+    /* What ships with no gate, next to what ships with one. Both are always
+       shown: on a change the gate does not alter, saying so is the honest
+       result, and it is the difference between being right and having checked. */
+    var u = r.ungated;
+    if (u.patch) {
+      var line = u.outcome === "silent"
+        ? "Validates. Returns <code>200 OK</code>. Silently stops expressing <b>" +
+          esc(u.lost.join(", ")) + "</b>."
+        : u.outcome === "rejected"
+        ? "The provider rejects it &mdash; <code>" + esc(u.schemaError) + "</code>. " +
+          "A loud failure, and a recoverable one."
+        : "Happens to be correct. Nothing checked that it was.";
+      html += '<div class="pg-compare"><div class="verdict" data-ungated="' + u.outcome +
+        '"><h4>Auto-fix with no gate</h4><p class="q"><code>' +
+        esc(PatchProof.describePatch(u.patch)) + "</code><br>" + line + "</p></div>";
+    } else {
+      html += '<div class="pg-compare"><div class="verdict" data-ungated="none">' +
+        "<h4>Auto-fix with no gate</h4><p class=\"q\">Nothing to ship &mdash; " +
+        "no repair was proposed at all.</p></div>";
+    }
+
     var v = r.result;
     if (v.adoptable) {
-      html += '<div class="verdict" data-tier="schema"><h4>Verified repair</h4>' +
+      html += '<div class="verdict" data-tier="schema"><h4>PatchProof &mdash; verified repair</h4>' +
         "<p class=\"q\">The contract holds the answer, so PatchProof repairs it: " +
         "<code>" + esc(PatchProof.describePatch(v.patch)) + "</code>. The request " +
         "still expresses everything it expressed before.</p></div>";
     } else if (v.question) {
-      html += '<div class="verdict" data-tier="needs_human"><h4>Refused &mdash; ' +
-        "asks one question</h4><p class=\"q\">" + esc(v.question) + "</p></div>";
+      html += '<div class="verdict" data-tier="needs_human"><h4>PatchProof &mdash; ' +
+        "refused, asks one question</h4><p class=\"q\">" + esc(v.question) + "</p></div>";
     } else {
-      html += '<div class="verdict" data-tier="rejected"><h4>No safe repair found</h4>' +
+      html += '<div class="verdict" data-tier="rejected"><h4>PatchProof &mdash; no safe repair</h4>' +
         "<p class=\"q\">Nothing proposed survived verification, and the failures do " +
         "not point at a single field, so there is no one question worth asking.</p></div>";
     }
+
+    html += "</div>";
 
     if (v.rejected && v.rejected.length) {
       html += '<details class="pg-tried"><summary>What it tried and rejected (' +
@@ -547,13 +628,14 @@ Nothing is sent anywhere; it runs in this page.</p>
   $("pg-presets").addEventListener("click", function (e) {
     var btn = e.target.closest("[data-preset]");
     if (!btn) return;
-    var pair = PRESETS[btn.getAttribute("data-preset")];
-    before.value = pair[0]; after.value = pair[1]; run();
+    var p = PRESETS[btn.getAttribute("data-preset")];
+    before.value = p[0]; after.value = p[1]; req.value = p[2] || ""; run();
   });
   $("pg-go").addEventListener("click", run);
 
   before.value = PRESETS.coupon[0];
   after.value = PRESETS.coupon[1];
+  req.value = PRESETS.coupon[2];
   run();
 })();
 </script>

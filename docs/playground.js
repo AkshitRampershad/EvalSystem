@@ -529,12 +529,31 @@
              question: stuck, checks: checks, adoptable: false, lost: [], after: null };
   }
 
+  /* What ships with no gate in front of it. bench/solvers.py AgentSolver with
+     gated=False adopts the reasoner's first proposal and verifies nothing, so
+     that is exactly what this reproduces. The classification is the point: a
+     schema-invalid repair fails loudly and is recoverable, while one that
+     validates and quietly stops expressing a value is the expensive kind. */
+  function ungated(candidates, payload, newContract) {
+    if (!candidates.length) return { patch: null, outcome: "none", lost: [], after: null };
+    const patch = candidates[0];
+    const after = render(payload, patch);
+    const err = validate(newContract, after);
+    const lost = err ? [] : lostCapability(payload, after);
+    return {
+      patch: patch, after: after, lost: lost,
+      schemaError: err ? err.code + " on '" + err.field + "'" : null,
+      outcome: err ? "rejected" : lost.length ? "silent" : "safe"
+    };
+  }
+
   // ---- one-call pipeline for the page ------------------------------------
   function analyse(oldSpec, newSpec, method, path, payload) {
     const oldC = contract(oldSpec, method, path);
     const newC = contract(newSpec, method, path);
     const signals = diffContracts(oldC, newC);
-    if (!payload) {
+    const synthesised = !payload || !Object.keys(payload).length;
+    if (synthesised) {
       payload = {};
       for (const name in oldC.fields) {
         const f = oldC.fields[name];
@@ -551,11 +570,12 @@
     const result = evaluate(newC, candidates, payload);
     return { oldContract: oldC, newContract: newC, signals: signals, payload: payload,
              preflight: preflight, candidates: candidates, result: result,
+             ungated: ungated(candidates, payload, newC), synthesised: synthesised,
              describePatch: describePatch };
   }
 
   const api = { contract, pyRepr, diffContracts, validate, propose, evaluate, analyse, render,
-                lostCapability, ratio, getCloseMatches, describePatch,
+                lostCapability, ungated, ratio, getCloseMatches, describePatch,
                 BREAKING, ADDITIVE, COSMETIC, SCHEMA, NEEDS_HUMAN, REJECTED };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.PatchProof = api;

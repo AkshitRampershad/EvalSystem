@@ -10,7 +10,11 @@ for (const [id, c] of Object.entries(input.pipeline || {})) {
   const signals = pp.diffContracts(c.old, c.new);
   const candidates = pp.propose(signals, { contract: c.new, canonical: c.payload });
   const verdict = pp.evaluate(c.new, candidates, c.payload);
+  const u = pp.ungated(candidates, c.payload, c.new);
   out[id] = {
+    // What ships with no gate, as the page shows it beside the gated verdict.
+    ungated: { patch: u.patch ? pp.describePatch(u.patch) : null,
+               outcome: u.outcome, lost: u.lost },
     signals: signals.map(s => [s.kind, s.detail.field, s.detail.impact]),
     candidates: candidates.map(p => pp.describePatch(p)),
     tier: verdict.tier,

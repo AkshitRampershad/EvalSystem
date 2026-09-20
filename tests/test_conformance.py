@@ -48,6 +48,23 @@ def node() -> str | None:
     return shutil.which("node")
 
 
+def _ungated(candidates, payload, new):
+    """What `bench.solvers.AgentSolver(gated=False)` would ship, and what it costs.
+
+    The page shows this next to the gated verdict, so the two implementations
+    have to agree on it as well.
+    """
+    if not candidates:
+        return {"patch": None, "outcome": "none", "lost": []}
+    patch = candidates[0]
+    after = Policy().preview(patch).render(payload)
+    why = gt.SchemaOracle(new).check(after)
+    lost = [] if why else gt.CapabilityCheck().lost(payload, after)
+    return {"patch": patch.describe(),
+            "outcome": "rejected" if why else ("silent" if lost else "safe"),
+            "lost": list(lost)}
+
+
 class TestBrowserEngineMatchesPython(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -78,6 +95,7 @@ class TestBrowserEngineMatchesPython(unittest.TestCase):
             candidates = HeuristicReasoner().propose(signals, ctx)
             verdict = gt.RealGate(new).evaluate(Policy(), candidates, case.payload)
             py[case.case_id] = {
+                "ungated": _ungated(candidates, case.payload, new),
                 "signals": [[s.kind, s.detail.get("field"), s.detail.get("impact")]
                             for s in signals],
                 "candidates": [p.describe() for p in candidates],
@@ -149,6 +167,7 @@ class TestBrowserEngineMatchesPython(unittest.TestCase):
             self.assertEqual(got["question"], expected["question"], f"{case_id}: question")
             self.assertEqual(got["lost"], expected["lost"], f"{case_id}: lost capability")
             self.assertEqual(got["adopted"], expected["adopted"], f"{case_id}: adopted")
+            self.assertEqual(got["ungated"], expected["ungated"], f"{case_id}: ungated")
 
     def test_the_comparison_actually_covered_the_whole_benchmark(self):
         compared = [k for k in self.py if k != "_extraction"]
