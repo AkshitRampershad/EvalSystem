@@ -254,6 +254,19 @@ footer{margin:3.5rem 0 2.5rem;padding-top:1.2rem;border-top:1px solid var(--bord
 .verdict .q{font-size:.95rem;margin:0}
 .verdict code{font-size:.85rem}
 .pg-err{color:var(--crit);font-size:.86rem;margin:.6rem 0 0}
+.pg-pickrow{margin:.9rem 0 0}
+#pg-op-pick{width:100%;font-family:var(--mono);font-size:.78rem;padding:.5rem .6rem;
+  border-radius:9px;border:1px solid var(--border);background:var(--bg);
+  color:var(--text)}
+#pg-op-pick:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.scan{margin:.9rem 0 0;padding:.85rem 1rem;border-radius:10px;
+  background:var(--surface-alt);border:1px solid var(--border)}
+.scan h4{margin:0 0 .5rem;font-size:.76rem;font-family:var(--mono);
+  letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+.scan ul{margin:.4rem 0 0;padding-left:1.1rem;font-size:.84rem;color:var(--text-2)}
+.scan li{margin:.2rem 0}
+.scan .op{font-family:var(--mono);font-size:.78rem}
+.scan .counts{font-family:var(--mono);font-size:.78rem;color:var(--text-2);margin:0}
 .bc-tally{margin:0 0 1.1rem}
 .bc-tally table{width:100%;border-collapse:collapse;font-size:.86rem}
 .bc-tally th,.bc-tally td{text-align:left;padding:.4rem .5rem .4rem 0;
@@ -433,10 +446,14 @@ You find out from the numbers, weeks later.</p>
 by any other field. The published contract does not say where it moved. Was this
 capability removed, or does it now go somewhere else in POST /v1/customers?</blockquote>
 
-<h2>Try it on a change of your own</h2>
-<p>Paste two versions of an OpenAPI operation, and optionally the request you
-actually send. You get two answers side by side: what an auto-fixer with no gate
-would ship, and what PatchProof does. This runs the real engine &mdash; a port of
+<h2 id="playground">Try it on a change of your own</h2>
+<p>Paste two versions of an OpenAPI document &mdash; one operation or a whole
+spec &mdash; and optionally the request you actually send. A spec with several
+operations is scanned whole and ranked by how much broke, since the one that
+changed is rarely the first one. You get two answers side by side: what an
+auto-fixer with no gate would ship, and what PatchProof does. <b>Copy a link to
+this</b> puts the whole case in the URL fragment, so it travels into an issue or
+a chat without ever reaching a server. This runs the real engine &mdash; a port of
 the Python in <code>sell/real/</code>, held to it by a conformance test that puts
 the same 71 benchmark cases through both and fails if they disagree on the
 signals, the proposals, the verdict, the question, or either answer below.
@@ -448,6 +465,7 @@ Nothing is sent anywhere; it runs in this page.</p>
     <button class="chip" type="button" data-preset="rename">A field is renamed</button>
     <button class="chip" type="button" data-preset="enum">An enum loses a value</button>
     <button class="chip" type="button" data-preset="required">A new required field</button>
+    <button class="chip" type="button" data-preset="spec_scan">A whole spec, four operations</button>
   </div>
 
   <div class="pg-io">
@@ -472,7 +490,14 @@ Nothing is sent anywhere; it runs in this page.</p>
 
   <div class="pg-run">
     <button class="btn" type="button" id="pg-go">Analyse</button>
+    <button class="chip" type="button" id="pg-link">Copy a link to this</button>
     <span class="pg-op" id="pg-op"></span>
+  </div>
+
+  <div id="pg-scan" hidden></div>
+  <div class="pg-pickrow" id="pg-pickrow" hidden>
+    <label for="pg-op-pick">Operation</label>
+    <select id="pg-op-pick"></select>
   </div>
 
   <div class="pg-out" id="pg-out" aria-live="polite"></div>
@@ -506,7 +531,9 @@ see what each solver did with it.</p>
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var before = $("pg-before"), after = $("pg-after"), req = $("pg-req"),
-      out = $("pg-out"), op = $("pg-op");
+      out = $("pg-out"), op = $("pg-op"), scanBox = $("pg-scan"),
+      pickRow = $("pg-pickrow"), opPick = $("pg-op-pick"), linkBtn = $("pg-link");
+  var CHOSEN = null;   // operation the visitor selected, as "METHOD /path"
 
   function spec(version, props, required, params) {
     var o = { info: { version: version }, paths: { "/v1/customers": { post: {
@@ -542,6 +569,11 @@ see what each solver did with it.</p>
         ui_mode: { type: "string", enum: ["elements", "embedded_page", "hosted_page"] } }),
       payload({ email: "ada@example.com", ui_mode: "custom" })
     ],
+    spec_scan: [
+      "{\n \"info\": {\n  \"version\": \"2024-01-01\"\n },\n \"paths\": {\n  \"/v1/customers\": {\n   \"post\": {\n    \"requestBody\": {\n     \"content\": {\n      \"application/x-www-form-urlencoded\": {\n       \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n         \"email\": {\n          \"type\": \"string\"\n         },\n         \"coupon\": {\n          \"type\": \"string\",\n          \"description\": \"Promotion code.\"\n         }\n        }\n       }\n      }\n     }\n    }\n   }\n  },\n  \"/v1/invoices\": {\n   \"post\": {\n    \"requestBody\": {\n     \"content\": {\n      \"application/x-www-form-urlencoded\": {\n       \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n         \"customer\": {\n          \"type\": \"string\"\n         },\n         \"collection_method\": {\n          \"type\": \"string\",\n          \"enum\": [\n           \"charge_automatically\",\n           \"send_invoice\"\n          ]\n         }\n        }\n       }\n      }\n     }\n    }\n   }\n  },\n  \"/v1/charges\": {\n   \"post\": {\n    \"requestBody\": {\n     \"content\": {\n      \"application/x-www-form-urlencoded\": {\n       \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n         \"amount\": {\n          \"type\": \"integer\"\n         },\n         \"currency\": {\n          \"type\": \"string\"\n         }\n        }\n       }\n      }\n     }\n    }\n   }\n  },\n  \"/v1/tokens\": {\n   \"post\": {\n    \"requestBody\": {\n     \"content\": {\n      \"application/x-www-form-urlencoded\": {\n       \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n         \"card\": {\n          \"type\": \"string\"\n         }\n        }\n       }\n      }\n     }\n    }\n   }\n  }\n }\n}",
+      "{\n \"info\": {\n  \"version\": \"2024-06-01\"\n },\n \"paths\": {\n  \"/v1/customers\": {\n   \"post\": {\n    \"requestBody\": {\n     \"content\": {\n      \"application/x-www-form-urlencoded\": {\n       \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n         \"email\": {\n          \"type\": \"string\"\n         },\n         \"discounts\": {\n          \"type\": \"string\",\n          \"description\": \"Promotion code.\"\n         }\n        }\n       }\n      }\n     }\n    }\n   }\n  },\n  \"/v1/invoices\": {\n   \"post\": {\n    \"requestBody\": {\n     \"content\": {\n      \"application/x-www-form-urlencoded\": {\n       \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n         \"customer\": {\n          \"type\": \"string\"\n         },\n         \"collection_method\": {\n          \"type\": \"string\",\n          \"enum\": [\n           \"automatic\",\n           \"manual\"\n          ]\n         }\n        }\n       }\n      }\n     }\n    }\n   }\n  },\n  \"/v1/charges\": {\n   \"post\": {\n    \"requestBody\": {\n     \"content\": {\n      \"application/x-www-form-urlencoded\": {\n       \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n         \"amount\": {\n          \"type\": \"integer\"\n         },\n         \"currency\": {\n          \"type\": \"string\"\n         }\n        }\n       }\n      }\n     }\n    }\n   }\n  },\n  \"/v1/payment_intents\": {\n   \"post\": {\n    \"requestBody\": {\n     \"content\": {\n      \"application/x-www-form-urlencoded\": {\n       \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n         \"amount\": {\n          \"type\": \"integer\"\n         }\n        }\n       }\n      }\n     }\n    }\n   }\n  }\n }\n}",
+      payload({ email: "ada@example.com", coupon: "LAUNCH20" })
+    ],
     required: [
       spec("2024-01-01", { email: { type: "string" } }),
       spec("2024-06-01", { email: { type: "string" },
@@ -550,13 +582,73 @@ see what each solver did with it.</p>
     ]
   };
 
-  function firstOperation(doc) {
-    var paths = doc.paths || {};
-    for (var path in paths)
-      for (var method in paths[path])
-        if (["get", "post", "put", "patch", "delete"].indexOf(method) > -1)
-          return { method: method, path: path };
-    return null;
+  function split(opName) {
+    var i = opName.indexOf(" ");
+    return { method: opName.slice(0, i).toLowerCase(), path: opName.slice(i + 1) };
+  }
+
+  /* A real provider spec has hundreds of operations, so the first one is
+     almost never the one that changed. Scan both specs whole, rank by how much
+     broke, and let the visitor drill into any of them. */
+  function renderScan(a, b) {
+    var oldCs = PatchProof.contracts(a), newCs = PatchProof.contracts(b);
+    var all = PatchProof.diffAll(oldCs, newCs);
+    var sum = PatchProof.summarise(all.drifts);
+    var total = Object.keys(oldCs).length;
+    var ranked = all.drifts.slice().sort(function (x, y) {
+      return (y.breaking.length - x.breaking.length) ||
+             (y.signals.length - x.signals.length) ||
+             (x.operation < y.operation ? -1 : 1);
+    });
+
+    if (total <= 1 && !all.added.length && !all.removed.length) {
+      scanBox.hidden = true; pickRow.hidden = true;
+      return ranked.length ? ranked[0].operation : Object.keys(newCs)[0] || null;
+    }
+
+    var html = '<div class="scan"><h4>Whole-spec scan</h4><p class="counts">' +
+      total + " operation" + (total === 1 ? "" : "s") + " compared &middot; " +
+      sum.operations_changed + " changed &middot; " +
+      sum.operations_with_breaking_changes + " with breaking changes &middot; " +
+      sum.signals + " signal" + (sum.signals === 1 ? "" : "s") +
+      " (" + sum.by_impact.breaking + " breaking, " + sum.by_impact.additive +
+      " additive, " + sum.by_impact.cosmetic + " cosmetic)</p>";
+    if (all.added.length || all.removed.length)
+      html += '<p class="counts">' +
+        (all.removed.length ? all.removed.length + " operation" +
+          (all.removed.length === 1 ? "" : "s") + " gone: " +
+          esc(all.removed.join(", ")) : "") +
+        (all.removed.length && all.added.length ? " &middot; " : "") +
+        (all.added.length ? all.added.length + " new: " +
+          esc(all.added.join(", ")) : "") + "</p>";
+    if (ranked.length) {
+      html += "<ul>";
+      ranked.slice(0, 6).forEach(function (d) {
+        html += '<li><span class="op">' + esc(d.operation) + "</span> &mdash; " +
+          d.breaking.length + " breaking of " + d.signals.length + "</li>";
+      });
+      if (ranked.length > 6) html += "<li>and " + (ranked.length - 6) + " more</li>";
+      html += "</ul>";
+    }
+    html += "</div>";
+    scanBox.innerHTML = html;
+    scanBox.hidden = false;
+
+    // the picker lists every operation, worst first, then the unchanged ones
+    var order = ranked.map(function (d) { return d.operation; });
+    Object.keys(newCs).sort().forEach(function (o) {
+      if (order.indexOf(o) === -1) order.push(o); });
+    opPick.innerHTML = order.map(function (o) {
+      var d = all.drifts.filter(function (x) { return x.operation === o; })[0];
+      return '<option value="' + esc(o) + '">' + esc(o) +
+        (d ? "  \u00b7  " + d.breaking.length + " breaking of " + d.signals.length
+           : "  \u00b7  unchanged") + "</option>";
+    }).join("");
+    pickRow.hidden = order.length < 2;
+
+    var want = CHOSEN && order.indexOf(CHOSEN) > -1 ? CHOSEN : order[0];
+    opPick.value = want;
+    return want || null;
   }
 
   function esc(t) {
@@ -586,11 +678,27 @@ see what each solver did with it.</p>
         return;
       }
     }
-    var target = firstOperation(a) || firstOperation(b);
-    if (!target) {
-      out.innerHTML = '<p class="pg-err">No operation found. Each document needs a ' +
-        '<code>paths</code> entry with a method such as <code>post</code>.</p>';
+    var chosen;
+    try { chosen = renderScan(a, b); }
+    catch (e) { out.innerHTML = '<p class="pg-err">' + esc(e.message) + "</p>"; return; }
+    if (!chosen) {
+      out.innerHTML = '<p class="pg-err">No operation found in both documents. ' +
+        "Each needs a <code>paths</code> entry with a method such as " +
+        "<code>post</code>, and a request body or parameters.</p>";
       return;
+    }
+    var target = split(chosen);
+
+    /* A pasted request is a request to one endpoint. Switching operations in
+       a whole-spec scan leaves it pointing at the wrong one, so set it aside
+       rather than reporting that /v1/invoices rejects a field it never had. */
+    var foreign = false;
+    if (given) {
+      var oldFields;
+      try { oldFields = PatchProof.contract(a, target.method, target.path).fields; }
+      catch (e) { oldFields = {}; }
+      var shared = Object.keys(given).some(function (k) { return k in oldFields; });
+      if (!shared && Object.keys(given).length) { foreign = true; given = null; }
     }
     var r;
     try { r = PatchProof.analyse(a, b, target.method, target.path, given); }
@@ -615,7 +723,12 @@ see what each solver did with it.</p>
     });
     html += "</div>";
 
-    if (r.synthesised) {
+    if (foreign) {
+      html += '<p class="pg-hint" style="margin:0 0 .8rem">The request you pasted ' +
+        "has no field in common with this operation, so it was set aside and " +
+        "this ran against an invented one: <code>" +
+        esc(JSON.stringify(r.payload)) + "</code></p>";
+    } else if (r.synthesised) {
       /* The synthesiser mirrors bench/mine.py: path parameters, required fields,
          and the field the change touches. A purely additive change leaves it
          with nothing to build from, which is worth saying rather than printing
@@ -682,14 +795,106 @@ see what each solver did with it.</p>
     var btn = e.target.closest("[data-preset]");
     if (!btn) return;
     var p = PRESETS[btn.getAttribute("data-preset")];
+    CHOSEN = null;
     before.value = p[0]; after.value = p[1]; req.value = p[2] || ""; run();
   });
-  $("pg-go").addEventListener("click", run);
+  $("pg-go").addEventListener("click", function () { CHOSEN = null; run(); });
+  opPick.addEventListener("change", function () { CHOSEN = opPick.value; run(); });
 
-  before.value = PRESETS.coupon[0];
-  after.value = PRESETS.coupon[1];
-  req.value = PRESETS.coupon[2];
-  run();
+  /* ---- permalink -------------------------------------------------------
+     Everything needed to reproduce a run goes in the fragment, so it never
+     reaches a server: the page is still doing all of this locally, and a link
+     you paste into an issue carries the case rather than a description of it. */
+  function b64(bytes) {
+    var bin = ""; bytes.forEach(function (c) { bin += String.fromCharCode(c); });
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function unb64(t) {
+    var v = t.replace(/-/g, "+").replace(/_/g, "/");
+    while (v.length % 4) v += "=";
+    var bin = atob(v), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  function drain(stream) {
+    var reader = stream.getReader(), parts = [], size = 0;
+    return reader.read().then(function step(res) {
+      if (res.done) {
+        var all = new Uint8Array(size), at = 0;
+        parts.forEach(function (p) { all.set(p, at); at += p.length; });
+        return all;
+      }
+      parts.push(res.value); size += res.value.length;
+      return reader.read().then(step);
+    });
+  }
+
+  /* OpenAPI documents are hugely repetitive, so gzip takes a spec pair from
+     kilobytes of base64 to a few hundred characters. "z" marks a compressed
+     payload; "u" is the uncompressed fallback where CompressionStream is
+     missing, and both decode. */
+  function encodeState() {
+    var st = { b: before.value, a: after.value, r: req.value, o: CHOSEN || "" };
+    var raw = new TextEncoder().encode(JSON.stringify(st));
+    if (typeof CompressionStream !== "function")
+      return Promise.resolve("u" + b64(raw));
+    return drain(new Blob([raw]).stream().pipeThrough(new CompressionStream("gzip")))
+      .then(function (out) { return "z" + b64(out); })
+      .catch(function () { return "u" + b64(raw); });
+  }
+
+  function decodeState(frag) {
+    var bytes = unb64(frag.slice(1));
+    if (frag.charAt(0) !== "z")
+      return Promise.resolve(JSON.parse(new TextDecoder().decode(bytes)));
+    return drain(new Blob([bytes]).stream()
+                   .pipeThrough(new DecompressionStream("gzip")))
+      .then(function (out) { return JSON.parse(new TextDecoder().decode(out)); });
+  }
+
+  var say = function (t) {
+    linkBtn.textContent = t;
+    setTimeout(function () { linkBtn.textContent = "Copy a link to this"; }, 2400);
+  };
+
+  linkBtn.addEventListener("click", function () {
+    encodeState().then(function (frag) {
+      // Long enough to break in a chat client or an issue body is not a link.
+      if (frag.length > 30000) { say("Too large to link"); return; }
+      var url = location.origin + location.pathname + location.search +
+        "#case=" + frag;
+      history.replaceState(null, "", "#case=" + frag);
+      if (navigator.clipboard && navigator.clipboard.writeText)
+        navigator.clipboard.writeText(url).then(function () { say("Link copied"); },
+                                                function () { say("Copy from the address bar"); });
+      else say("Copy from the address bar");
+    }, function () { say("Could not build a link"); });
+  });
+
+  function restore() {
+    var m = /(?:^|[#&])case=([^&]+)/.exec(location.hash || "");
+    if (!m) return Promise.resolve(false);
+    return Promise.resolve().then(function () {
+      return decodeState(m[1]);
+    }).then(function (st) {
+      if (!st || typeof st.b !== "string" || typeof st.a !== "string") return false;
+      before.value = st.b; after.value = st.a;
+      req.value = typeof st.r === "string" ? st.r : "";
+      CHOSEN = st.o || null;
+      return true;
+    }).catch(function () { return false; });
+  }
+
+  restore().then(function (restored) {
+    if (!restored) {
+      before.value = PRESETS.coupon[0];
+      after.value = PRESETS.coupon[1];
+      req.value = PRESETS.coupon[2];
+    }
+    run();
+  });
 
   /* ---- the benchmark, recomputed in the browser ------------------------
      The case file is the one bench/ runs on, byte for byte (tests/

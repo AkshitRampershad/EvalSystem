@@ -75,13 +75,17 @@ def _ungated(candidates, payload, new):
             "lost": list(lost)}
 
 
+
+COMPARABLE_FACTS = ("type", "required", "required_if_present", "allowed",
+                    "pattern", "max_length", "location")
+
 class TestBrowserEngineMatchesPython(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if node() is None:
             raise unittest.SkipTest("node is not available")
         cls.cases = CaseSet.load(DEFAULT_CASES)
-        cls.py, payload = cls._python_side(cls.cases)
+        cls.py, cls.py_scan, payload = cls._python_side(cls.cases)
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
             json.dump(payload, fh)
             cls.input_path = fh.name
@@ -129,6 +133,27 @@ class TestBrowserEngineMatchesPython(unittest.TestCase):
                          "expected_outcome": case.expected_outcome,
                          "expected_target": case.expected_target}}
 
+        # A whole-spec scan: every operation, not just the one a visitor pasted.
+        # The fixtures differ by an operation removed and one added, which no
+        # per-field diff can see, so diff_all has to report those too.
+        v1, v2 = oa.load(FIX / "widgets-v1.json"), oa.load(FIX / "widgets-v2.json")
+        old_cs, new_cs = oa.contracts(v1), oa.contracts(v2)
+        drifts, added, removed = differ.diff_all(old_cs, new_cs)
+        scan = {
+            "operations_old": [list(t) for t in oa.operations(v1)],
+            "operations_new": [list(t) for t in oa.operations(v2)],
+            "contracts_old": old_cs,
+            "contracts_new": new_cs,
+            "drifts": [{"operation": d.operation,
+                        "signals": [[g.kind, g.detail.get("field"),
+                                     g.detail.get("impact")] for g in d.signals],
+                        "breaking": len(d.breaking), "additive": len(d.additive),
+                        "cosmetic": len(d.cosmetic)} for d in drifts],
+            "added": added, "removed": removed,
+            "summary": differ.summarise(drifts),
+        }
+        payload["scan"] = {"old": v1, "new": v2}
+
         for name, method, path, depth in [
             ("widgets-v1-post", "post", "/v1/widgets", 2),
             ("widgets-v2-post", "post", "/v1/widgets", 2),
@@ -141,7 +166,7 @@ class TestBrowserEngineMatchesPython(unittest.TestCase):
                                            "path": path, "max_depth": depth}
             py.setdefault("_extraction", {})[name] = oa.contract(
                 spec, method, path, max_depth=depth)
-        return py, payload
+        return py, scan, payload
 
     # ---- the comparisons ------------------------------------------------
 
@@ -152,6 +177,33 @@ class TestBrowserEngineMatchesPython(unittest.TestCase):
             expected = difflib.SequenceMatcher(None, a, b).ratio()
             self.assertAlmostEqual(js_ratio, expected, places=9,
                                    msg=f"ratio({a!r},{b!r})")
+
+    def test_a_whole_spec_scan_matches(self) -> None:
+        """Pasting a real spec pair examines every operation, not just the first.
+
+        Operations that appear or vanish outright are part of the answer and no
+        per-field diff can see them, so they are compared here too.
+        """
+        expected = self.py_scan
+        got = self.js["scan"]
+
+        # The browser's digest is a stand-in, not sha256 -- only equality within
+        # one implementation matters, which is why the signals agree while the
+        # digest strings do not. Compare the facts the diff actually reads.
+        def facts_only(contracts):
+            return {op: {name: {k: f.get(k) for k in COMPARABLE_FACTS}
+                         for name, f in c["fields"].items()}
+                    for op, c in contracts.items()}
+
+        for key in ("operations_old", "operations_new", "added", "removed",
+                    "drifts", "summary"):
+            self.assertEqual(got[key], expected[key], f"scan: {key}")
+        for key in ("contracts_old", "contracts_new"):
+            self.assertEqual(facts_only(got[key]), facts_only(expected[key]),
+                             f"scan: {key}")
+        self.assertTrue(expected["drifts"], "the fixtures should differ somewhere")
+        self.assertEqual(expected["removed"], ["GET /v1/legacy"])
+        self.assertEqual(expected["added"], ["POST /v1/gadgets"])
 
     def test_contract_extraction_matches(self):
         for name, expected in self.py["_extraction"].items():

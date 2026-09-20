@@ -207,6 +207,43 @@
     };
   }
 
+  const METHODS = ["get", "post", "put", "patch", "delete"];
+
+  /* Every operation, or only those that accept input at all. One with neither
+     a request body nor parameters has no contract a caller can drift against. */
+  function operations(spec, withContractOnly) {
+    withContractOnly = withContractOnly !== false;
+    const found = [];
+    const paths = spec.paths || {};
+    for (const path in paths) {
+      const pathItem = paths[path];
+      if (!pathItem || typeof pathItem !== "object") continue;
+      for (const method in pathItem) {
+        if (METHODS.indexOf(method.toLowerCase()) === -1) continue;
+        const operation = pathItem[method];
+        if (!operation || typeof operation !== "object") continue;
+        if (withContractOnly && !requestSchema(operation) &&
+            !Object.keys(parameters(operation, pathItem, spec)).length) continue;
+        found.push([method.toLowerCase(), path]);
+      }
+    }
+    return found.sort((a, b) => (a[0] + " " + a[1] < b[0] + " " + b[1] ? -1 : 1));
+  }
+
+  /* Every operation's contract, keyed "METHOD /path". Depth defaults lower
+     than contract(): at spec scale the nested expansion dominates, and one
+     level already covers the fields a caller sets. */
+  function contracts(spec, ops, maxDepth) {
+    maxDepth = maxDepth === undefined ? 1 : maxDepth;
+    const out = {};
+    for (const [method, path] of (ops || operations(spec))) {
+      let c;
+      try { c = contract(spec, method, path, maxDepth); } catch (e) { continue; }
+      out[c.operation] = c;
+    }
+    return out;
+  }
+
   // ---- diff.py -----------------------------------------------------------
   const BREAKING = "breaking", ADDITIVE = "additive", COSMETIC = "cosmetic";
   const COMPARED = ["type", "required", "required_if_present", "allowed", "pattern",
@@ -261,6 +298,42 @@
       }
     }
     return signals;
+  }
+
+  /* Diff every operation present in both, and report the ones that appeared
+     or vanished outright -- which no per-field diff can see. */
+  function diffAll(oldCs, newCs) {
+    const drifts = [];
+    for (const op of Object.keys(oldCs).filter(k => k in newCs).sort()) {
+      const signals = diffContracts(oldCs[op], newCs[op]);
+      if (signals.length) drifts.push({ operation: op, signals: signals });
+    }
+    const impact = (d, k) => d.signals.filter(s => s.detail.impact === k);
+    for (const d of drifts) {
+      d.breaking = impact(d, BREAKING);
+      d.additive = impact(d, ADDITIVE);
+      d.cosmetic = impact(d, COSMETIC);
+    }
+    return { drifts: drifts,
+             added: Object.keys(newCs).filter(k => !(k in oldCs)).sort(),
+             removed: Object.keys(oldCs).filter(k => !(k in newCs)).sort() };
+  }
+
+  function summarise(drifts) {
+    const byKind = {}, byImpact = { breaking: 0, additive: 0, cosmetic: 0 };
+    let total = 0;
+    for (const d of drifts) for (const s of d.signals) {
+      byKind[s.kind] = (byKind[s.kind] || 0) + 1;
+      byImpact[s.detail.impact || ADDITIVE] += 1;
+      total += 1;
+    }
+    const sortedKind = {};
+    for (const k of Object.keys(byKind).sort((a, b) => byKind[b] - byKind[a]))
+      sortedKind[k] = byKind[k];
+    return { operations_changed: drifts.length,
+             operations_with_breaking_changes:
+               drifts.filter(d => d.breaking.length).length,
+             signals: total, by_impact: byImpact, by_kind: sortedKind };
   }
 
   // ---- validator.py ------------------------------------------------------
@@ -653,7 +726,8 @@
              describePatch: describePatch };
   }
 
-  const api = { contract, pyRepr, diffContracts, validate, propose, evaluate, analyse, render,
+  const api = { contract, contracts, operations, diffAll, summarise,
+                pyRepr, diffContracts, validate, propose, evaluate, analyse, render,
                 lostCapability, ungated, ratio, getCloseMatches, describePatch,
                 judge, scoreCase, tally,
                 BREAKING, ADDITIVE, COSMETIC, SCHEMA, NEEDS_HUMAN, REJECTED,
